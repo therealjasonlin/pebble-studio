@@ -8,7 +8,7 @@ import {
   isWinShimReady,
   _resetWinShimState,
   type WinShimPaths,
-} from "../../src/main/backend/winTimeShim.js";
+} from "../../src/main/backend/bundledTimeShim.js";
 
 const PATHS: WinShimPaths = {
   dll: "C:\\res\\timeshim-win\\timeshim-win.dll",

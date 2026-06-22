@@ -8,7 +8,7 @@
  * that shape. */
 export const EMU_INFO_PATH = "/tmp/pb-emulator.json";
 export const EMU_LOG_PATH = "/tmp/pebble-emu.log";
-export const SDK_ROOT = "$HOME/.local/share/pebble-sdk/SDKs/current";
+export const SDK_ROOT = "$HOME/.pebble-sdk/SDKs/current";
 
 export interface WinHostPaths {
   /** %TEMP%\pb-emulator.json — pebble-tool writes the state file to tempfile.gettempdir(). */
@@ -32,4 +32,8 @@ export function winHostPaths(env: Record<string, string | undefined> = process.e
     emuLog: `${temp}\\pebble-emu.log`,
     sdkRoot: `${local}\\pebble-sdk\\SDKs\\current`,
   };
+}
+
+export function nativeHostEmuInfoPath(): string {
+  return process.platform === "win32" ? winHostPaths().emuInfo : EMU_INFO_PATH;
 }

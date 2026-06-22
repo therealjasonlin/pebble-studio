@@ -15,8 +15,13 @@ __pycache__/
 CLAUDE.md
 docs/
 
-# Large self-contained runtime bundles (~300 MB total). Shipped as release
-# assets, not committed; reproducible from the build scripts under scripts/.
+# Large self-contained runtime bundles (~300 MB per platform). Shipped as
+# release assets, not committed; reproducible from the build scripts under
+# scripts/.
 vendor/qemu-pebble-win/
 vendor/pebble-py/
 vendor/pebble-sdk/
+vendor/qemu-pebble-linux/
+vendor/pebble-py-linux/
+vendor/qemu-pebble-mac/
+vendor/pebble-py-mac/

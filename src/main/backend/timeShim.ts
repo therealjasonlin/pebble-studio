@@ -114,7 +114,7 @@ export function wrapperScript(): string {
     "#!/bin/sh",
     `SO=$HOME/.pebble-studio/timeshim.so`,
     `if [ -f $SO ]; then export LD_PRELOAD=$SO; export PEBBLE_FAKETIME_FILE=$HOME/.pebble-studio/pb-faketime.ctl; fi`,
-    `exec $HOME/.local/share/pebble-sdk/SDKs/current/toolchain/bin/qemu-pebble "$@"`,
+    `exec $HOME/.pebble-sdk/SDKs/current/toolchain/bin/qemu-pebble "$@"`,
     "",
   ].join("\n");
 }

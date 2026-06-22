@@ -4,8 +4,13 @@ import { selectDriverKind, type ProbeResult } from "../../src/main/backend/drive
 describe("selectDriverKind", () => {
   const base: ProbeResult = { platform: "linux", nativePebbleOnPath: false, nativeQemuOnPath: false, wslAvailable: false };
 
-  it("prefers native when both pebble and qemu are on PATH", () => {
-    expect(selectDriverKind({ ...base, nativePebbleOnPath: true, nativeQemuOnPath: true })).toBe("native");
+  it("prefers bundled-native when both pebble and qemu resolve", () => {
+    expect(selectDriverKind({ ...base, nativePebbleOnPath: true, nativeQemuOnPath: true })).toBe("bundled-native");
+  });
+
+  it("falls back to plain native on POSIX when only one of pebble/qemu resolves", () => {
+    expect(selectDriverKind({ ...base, nativePebbleOnPath: true, nativeQemuOnPath: false })).toBe("native");
+    expect(selectDriverKind({ ...base, nativePebbleOnPath: false, nativeQemuOnPath: true })).toBe("native");
   });
 
   it("falls back to wsl on win32 when native tools are missing but wsl exists", () => {
@@ -20,10 +25,10 @@ describe("selectDriverKind", () => {
     expect(selectDriverKind({ ...base, override: "wsl", wslAvailable: true })).toBe("wsl");
   });
 
-  it("prefers windows-native on win32 when pebble.exe AND qemu(.exe)/PEBBLE_QEMU_PATH resolve", () => {
+  it("prefers bundled-native on win32 when pebble.exe AND qemu(.exe)/PEBBLE_QEMU_PATH resolve", () => {
     expect(
       selectDriverKind({ ...base, platform: "win32", nativePebbleOnPath: true, nativeQemuOnPath: true }),
-    ).toBe("windows-native");
+    ).toBe("bundled-native");
   });
 
   it("on win32 falls back to wsl when native qemu is absent but wsl exists", () => {
@@ -32,19 +37,15 @@ describe("selectDriverKind", () => {
     ).toBe("wsl");
   });
 
-  it("honors an explicit windows-native override when win tools are present", () => {
+  it("honors an explicit bundled-native override when native tools are present", () => {
     expect(
-      selectDriverKind({ ...base, platform: "win32", override: "windows-native", nativePebbleOnPath: true, nativeQemuOnPath: true }),
-    ).toBe("windows-native");
+      selectDriverKind({ ...base, platform: "win32", override: "bundled-native", nativePebbleOnPath: true, nativeQemuOnPath: true }),
+    ).toBe("bundled-native");
   });
 
-  it("throws if windows-native is overridden but win tools are missing", () => {
+  it("throws if bundled-native is overridden but native tools are missing", () => {
     expect(() =>
-      selectDriverKind({ ...base, platform: "win32", override: "windows-native", nativePebbleOnPath: false, nativeQemuOnPath: false }),
-    ).toThrow(/windows-native.*not found/i);
-  });
-
-  it("keeps native (Linux) selection unchanged", () => {
-    expect(selectDriverKind({ ...base, nativePebbleOnPath: true, nativeQemuOnPath: true })).toBe("native");
+      selectDriverKind({ ...base, platform: "win32", override: "bundled-native", nativePebbleOnPath: false, nativeQemuOnPath: false }),
+    ).toThrow(/bundled-native.*not found/i);
   });
 });

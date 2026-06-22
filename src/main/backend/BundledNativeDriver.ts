@@ -3,13 +3,13 @@ import type { PlatformId, ButtonId, ButtonAction } from "../../shared/types.js";
 import type { BackendDriver, HealthActivateResult, Runner, VncEndpoint } from "./BackendDriver.js";
 import { NativeDriver, type BootFn, type StopFn } from "./NativeDriver.js";
 import type { BootToken, OnStep } from "./bootEmulator.js";
-import type { PebbleCmdBuilder } from "./winBootDeps.js";
+import type { PebbleCmdBuilder } from "./bundledBootDeps.js";
 import { winPath } from "./winPath.js";
 import { winHostPaths } from "./hostPaths.js";
 import { winSetTzOffsetArgv } from "./pebbleCli.js";
 import * as cli from "./pebbleCli.js";
-import type { WinInputChannel } from "./winInputChannel.js";
-import { writeWinFakeTime } from "./winTimeShim.js";
+import type { BundledInputChannel } from "./bundledInputChannel.js";
+import { writeWinFakeTime } from "./bundledTimeShim.js";
 
 /** Fixed id for the demo pin the Timeline button inserts so the peek is visible. */
 const SAMPLE_PIN_ID = "studio-sample-pin";
@@ -21,7 +21,7 @@ export interface WinTimeHelper {
   helperPath: string;
 }
 
-export interface WindowsNativeDriverDeps {
+export interface BundledNativeDriverDeps {
   run: Runner;
   /** Build the bundled pebble-tool invocation (winRuntime.pebbleCmd). When set,
    * discrete `pebble` commands are rewritten to the bundled python + run_tool()
@@ -40,7 +40,7 @@ export interface WindowsNativeDriverDeps {
    * helper (a stdin write, ~0ms) instead of a per-press `pebble emu-button` spawn.
    * Falls back to the inner CLI path when the channel is unavailable (not booted,
    * helper died). Absent → always uses the CLI path (legacy behavior). */
-  inputChannel?: WinInputChannel;
+  inputChannel?: BundledInputChannel;
   /** Custom-time control file. Custom time is built into the bundled qemu-pebble.exe
    * (the Pebble RTC reads this file directly), so ensureTimeShim is always ready and
    * setFakeTime just writes the %TEMP% control file. Absent → ensureTimeShim=false +
@@ -76,12 +76,12 @@ export function healthRetryDecision(
 }
 
 /**
- * WindowsNativeDriver — drives qemu-pebble natively on Windows (no WSL, no bash).
+ * BundledNativeDriver — drives qemu-pebble natively on Windows (no WSL, no bash).
  *
  * Composes an inner NativeDriver with a PLAIN runner: discrete `pebble` commands
  * spawn `pebble.exe` directly (argv, shell:false; Node resolves the `.exe` via
  * PATHEXT). The boot/stop orchestration is injected (Windows tasklist/taskkill +
- * Node fs + net.connect; see winBootDeps). Methods that depend on POSIX-only
+ * Node fs + net.connect; see bundledBootDeps). Methods that depend on POSIX-only
  * mechanics are overridden:
  *   - install: winPath() normalization (no /mnt translation).
  *   - ensureTimeShim: false (LD_PRELOAD doesn't exist on Windows; the DLL shim is
@@ -89,10 +89,10 @@ export function healthRetryDecision(
  *   - setFakeTime: no-op (no shim) — legacy time is driven by setTzOffset.
  *   - setTzOffset: shell-free python-helper argv (best-effort, never throws).
  */
-export class WindowsNativeDriver implements BackendDriver {
+export class BundledNativeDriver implements BackendDriver {
   private readonly inner: NativeDriver;
 
-  constructor(private readonly deps: WindowsNativeDriverDeps) {
+  constructor(private readonly deps: BundledNativeDriverDeps) {
     // The inner NativeDriver builds VNC-agnostic `pebble` commands (cmd "pebble").
     // We wrap its runner so every such command is rewritten to the bundled
     // invocation (python + run_tool() + runtime env). Non-pebble commands (e.g.
@@ -126,7 +126,8 @@ export class WindowsNativeDriver implements BackendDriver {
   }
 
   async install(pbwPath: string): Promise<void> {
-    return this.inner.install(winPath(pbwPath));
+    const p = process.platform === "win32" ? winPath(pbwPath) : pbwPath;
+    return this.inner.install(p);
   }
 
   async button(id: ButtonId, action: ButtonAction): Promise<void> {
@@ -213,14 +214,18 @@ export class WindowsNativeDriver implements BackendDriver {
   // winPath canonicalizes backslash/forward-slash; outPath is already a Windows
   // path (app-constructed), so this is a no-op slash normalization kept for
   // symmetry with install.
-  async screenshot(outPath: string): Promise<void> { return this.inner.screenshot(winPath(outPath)); }
+  async screenshot(outPath: string): Promise<void> { 
+    const p = process.platform === "win32" ? winPath(outPath) : outPath;
+    return this.inner.screenshot(p); 
+  }
   // Backlight-free framebuffer grab via the persistent input helper's pypkjs
   // socket. Delegates to the input channel when wired; false (caller falls back
   // to the canvas grab) when absent or the channel is unavailable. Never throws.
   async screenshotFramebuffer(outPath: string): Promise<boolean> {
     const ch = this.deps.inputChannel;
     if (!ch) return false;
-    return ch.screenshot(winPath(outPath)).catch(() => false);
+    const p = process.platform === "win32" ? winPath(outPath) : outPath;
+    return ch.screenshot(p).catch(() => false);
   }
   async wipe(): Promise<void> { return this.inner.wipe(); }
   async timelineQuickView(on: boolean): Promise<void> { return this.inner.timelineQuickView(on); }

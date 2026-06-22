@@ -10,21 +10,30 @@ extraResources:
   - from: vendor/timeshim
     to: timeshim
     filter: ["timeshim.c", "timeshim-x86_64.so"]
-  # Native-Windows time shim: an injected DLL that fakes qemu's wall clock (the
-  # Windows analog of the LD_PRELOAD .so). launcher.exe wraps qemu via
-  # PEBBLE_QEMU_PATH and injects timeshim-win.dll; probe.exe is the self-test
-  # target. Resolved under resourcesPath/timeshim-win (packaged) or vendor/ (dev).
   - from: vendor/timeshim-win
     to: timeshim-win
     filter: ["timeshim-win.dll", "launcher.exe", "probe.exe"]
-  # Native-Windows self-contained emulator stack. winRuntime.ts resolves each of
-  # these under process.resourcesPath when packaged (and under vendor/ in dev).
-  - from: vendor/qemu-pebble-win
-    to: qemu-pebble-win
-  - from: vendor/pebble-py
-    to: pebble-py
   - from: vendor/pebble-sdk
     to: pebble-sdk
+mac:
+  icon: build/icon.icns
+  target:
+    - dir
+  extraResources:
+    - from: vendor/qemu-pebble-mac
+      to: qemu-pebble-mac
+    - from: vendor/pebble-py-mac
+      to: pebble-py-mac
+linux:
+  icon: build/icon.png
+  target:
+    - AppImage
+    - dir
+  extraResources:
+    - from: vendor/qemu-pebble-linux
+      to: qemu-pebble-linux
+    - from: vendor/pebble-py-linux
+      to: pebble-py-linux
 win:
   icon: build/icon.ico
   target:
@@ -32,6 +41,8 @@ win:
   artifactName: "Pebble Studio ${version}.${ext}"
   signAndEditExecutable: false
   sign: null
-# Note: NSIS installer target is intentionally omitted here because building
-# an NSIS .exe installer requires wine (or a native Windows machine).
-# To build the installer, run `npm run dist` on Windows or Linux with wine.
+  extraResources:
+    - from: vendor/qemu-pebble-win
+      to: qemu-pebble-win
+    - from: vendor/pebble-py
+      to: pebble-py

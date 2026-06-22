@@ -14,7 +14,7 @@ A modern desktop GUI for the [`qemu-pebble`](https://github.com/pebble/qemu) emu
 
 ## Supported platforms
 
-The app is built and packaged for **Windows** as a self-contained bundle (it ships its own emulator, Python runtime, and SDK as release assets, so no separate install is needed). The codebase is cross-platform Electron/TypeScript; other platforms can be built from source but are not currently packaged.
+The app is built and packaged for **Windows**, **macOS**, and **Linux** as a self-contained bundle (it ships its own emulator, Python runtime, and SDK as release assets, so no separate install is needed). The codebase is cross-platform Electron/TypeScript.
 
 ## Install
 
@@ -36,7 +36,9 @@ Other useful scripts:
 npm test           # run the vitest suite
 npm run typecheck  # TypeScript type-check (main + renderer)
 npm run dev        # Vite dev server for the renderer
-npm run dist       # produce a packaged Windows build (npm run dist)
+npm run dist:win   # produce a packaged Windows build (.exe)
+npm run dist:mac   # produce a packaged macOS build (.app / .dmg)
+npm run dist:linux # produce a packaged Linux build (.AppImage)
 ```
 
 ### Runtime bundles

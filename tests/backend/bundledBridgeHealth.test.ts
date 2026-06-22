@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   nativeHealthVerdict,
   makeNativeHealthCheck,
-} from "../../src/main/backend/winBridgeHealth.js";
+} from "../../src/main/backend/bundledBridgeHealth.js";
 import type { BridgePids } from "../../src/main/backend/bridgeHealth.js";
 
 const PIDS: BridgePids = { qemuPid: 1001, pypkjsPid: 1002, pypkjsPort: 57749 };

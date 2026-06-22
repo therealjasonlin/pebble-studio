@@ -1,5 +1,12 @@
-import { describe, it, expect, vi } from "vitest";
-import { makeWinBootDeps } from "../../src/main/backend/winBootDeps.js";
+import { describe, it, expect, vi, beforeAll, afterAll } from "vitest";
+import { makeBundledBootDeps } from "../../src/main/backend/bundledBootDeps.js";
+
+// makeBundledBootDeps branches on process.platform (Windows tasklist/taskkill vs
+// POSIX pgrep/pkill). These cases assert the Windows branch, so pin the platform
+// to win32 for this file regardless of the host running the suite.
+const ORIGINAL_PLATFORM = process.platform;
+beforeAll(() => Object.defineProperty(process, "platform", { value: "win32" }));
+afterAll(() => Object.defineProperty(process, "platform", { value: ORIGINAL_PLATFORM }));
 
 function deps(over = {}) {
   const run = vi.fn(async () => ({ code: 0, stdout: "", stderr: "" }));
@@ -8,10 +15,10 @@ function deps(over = {}) {
   return { run, readFile, detachSpawn, ...over };
 }
 
-describe("makeWinBootDeps", () => {
+describe("makeBundledBootDeps", () => {
   it("bootControl detach-spawns bare pebble (PATH default) with no extra env", async () => {
     const d = deps();
-    const b = makeWinBootDeps(d);
+    const b = makeBundledBootDeps(d);
     await b.bootControl("basalt");
     expect(d.detachSpawn).toHaveBeenCalledWith("pebble", ["emu-control", "--emulator", "basalt", "--vnc"], undefined);
   });
@@ -23,7 +30,7 @@ describe("makeWinBootDeps", () => {
       env: { PEBBLE_QEMU_PATH: "C:\\q\\qemu-pebble.exe", XDG_DATA_HOME: "C:\\data\\pebble-data" },
     });
     const d = deps({ pebble });
-    const b = makeWinBootDeps(d);
+    const b = makeBundledBootDeps(d);
     await b.bootControl("emery");
     expect(d.detachSpawn).toHaveBeenCalledWith(
       "C:\\py\\python.exe",
@@ -43,7 +50,7 @@ describe("makeWinBootDeps", () => {
       pebble,
       run: vi.fn(async (cmd: string, args: string[], env?: Record<string, string>) => { calls.push({ cmd, args, env }); return { code: 0, stdout: "", stderr: "" }; }),
     });
-    const b = makeWinBootDeps(d);
+    const b = makeBundledBootDeps(d);
     await b.wipe!();
     const wipeCall = calls.find((c) => c.args.includes("wipe"));
     expect(wipeCall?.cmd).toBe("C:\\py\\python.exe");
@@ -58,7 +65,7 @@ describe("makeWinBootDeps", () => {
           : { code: 0, stdout: "", stderr: "" }),
       readFile: vi.fn(async () => JSON.stringify({ basalt: { "4.9": { qemu: { pid: 999 } } } })),
     });
-    const b = makeWinBootDeps(d);
+    const b = makeBundledBootDeps(d);
     const probe = await b.diagnose();
     expect(probe.qemuAlive).toBe(true);
     expect(probe.stateFile).toBe(true);
@@ -66,7 +73,7 @@ describe("makeWinBootDeps", () => {
 
   it("waitForEmuInfo resolves once the state file has a live pid for the platform", async () => {
     const d = deps({ readFile: vi.fn(async () => JSON.stringify({ basalt: { "4.9": { qemu: { pid: 42 } } } })) });
-    const b = makeWinBootDeps(d);
+    const b = makeBundledBootDeps(d);
     await expect(b.waitForEmuInfo("basalt", 1000)).resolves.toBeUndefined();
   });
 
@@ -77,30 +84,30 @@ describe("makeWinBootDeps", () => {
       rm: vi.fn(async () => {}),
       portOpen: vi.fn(async () => false),
     });
-    const b = makeWinBootDeps(d);
+    const b = makeBundledBootDeps(d);
     await b.killAll();
     expect(calls.some((a) => a.includes("qemu-pebble.exe") && a.includes("/F"))).toBe(true);
     expect(d.rm).toHaveBeenCalled();
   });
 
   it("waitForEmuInfo throws on timeout when the state file never has a live pid", async () => {
-    const b = makeWinBootDeps(deps({ readFile: vi.fn(async () => "") }));
+    const b = makeBundledBootDeps(deps({ readFile: vi.fn(async () => "") }));
     await expect(b.waitForEmuInfo("basalt", 1)).rejects.toThrow(/timeout/i);
   });
 
   it("waitForEmuInfo aborts promptly when the token is cancelled", async () => {
     const token = { cancelled: true };
-    const b = makeWinBootDeps(deps({ readFile: vi.fn(async () => "") }));
+    const b = makeBundledBootDeps(deps({ readFile: vi.fn(async () => "") }));
     await expect(b.waitForEmuInfo("basalt", 10_000, token)).rejects.toThrow(/abort/i);
   });
 
   it("waitForPort rejects on timeout when the port never opens", async () => {
-    const b = makeWinBootDeps(deps({ portOpen: vi.fn(async () => false) }));
+    const b = makeBundledBootDeps(deps({ portOpen: vi.fn(async () => false) }));
     await expect(b.waitForPort("127.0.0.1", 5901, 1)).rejects.toThrow(/timeout/i);
   });
 
   it("diagnose reports qemuAlive=false for the 'No tasks' tasklist banner", async () => {
-    const b = makeWinBootDeps(deps({
+    const b = makeBundledBootDeps(deps({
       run: vi.fn(async () => ({ code: 0, stdout: "INFO: No tasks are running which match the specified criteria.\r\n", stderr: "" })),
       readFile: vi.fn(async () => ""),
       portOpen: vi.fn(async () => false),
@@ -111,7 +118,7 @@ describe("makeWinBootDeps", () => {
   });
 });
 
-describe("makeWinBootDeps killAll — process-leak fix", () => {
+describe("makeBundledBootDeps killAll — process-leak fix", () => {
   // State file with qemu + pypkjs + websockify pids; the latter two run as
   // python.exe, so they MUST be killed by PID (an image kill would leak them).
   const stateJson = JSON.stringify({
@@ -132,7 +139,7 @@ describe("makeWinBootDeps killAll — process-leak fix", () => {
       rm: vi.fn(async () => {}),
       portOpen: vi.fn(async () => false),
     });
-    const b = makeWinBootDeps(d);
+    const b = makeBundledBootDeps(d);
     await b.killAll();
 
     // Each pid (qemu/pypkjs/websockify) force-killed by PID with the child tree.
@@ -152,7 +159,7 @@ describe("makeWinBootDeps killAll — process-leak fix", () => {
       rm: vi.fn(async () => {}),
       portOpen: vi.fn(async () => false),
     });
-    await makeWinBootDeps(d).killAll();
+    await makeBundledBootDeps(d).killAll();
     expect(calls.some((a) => a.includes("python.exe"))).toBe(false);
   });
 
@@ -166,26 +173,26 @@ describe("makeWinBootDeps killAll — process-leak fix", () => {
       rm: vi.fn(async () => {}),
       portOpen: vi.fn(async () => false),
     });
-    await makeWinBootDeps(d).killAll();
+    await makeBundledBootDeps(d).killAll();
     expect(calls.some((c) => c.cmd === "C:\\py\\python.exe" && c.args.includes("kill"))).toBe(true);
   });
 });
 
-describe("makeWinBootDeps preflight — foreign port-collision guard", () => {
+describe("makeBundledBootDeps preflight — foreign port-collision guard", () => {
   it("resolves when both VNC and ws ports are free", async () => {
-    const b = makeWinBootDeps(deps({ portOpen: vi.fn(async () => false) }));
+    const b = makeBundledBootDeps(deps({ portOpen: vi.fn(async () => false) }));
     await expect(b.preflight!()).resolves.toBeUndefined();
   });
 
   it("throws a clear, actionable error when a port is still held after teardown", async () => {
-    const b = makeWinBootDeps(deps({ portOpen: vi.fn(async () => true) }));
+    const b = makeBundledBootDeps(deps({ portOpen: vi.fn(async () => true) }));
     await expect(b.preflight!()).rejects.toThrow(/already in use.*(WSL|Pebble Studio instance)/i);
   });
 
   it("names the specific port(s) in use", async () => {
     // Only the RFB port (5901) is held.
     const portOpen = vi.fn(async (_h: string, p: number) => p === 5901);
-    const b = makeWinBootDeps(deps({ portOpen }));
+    const b = makeBundledBootDeps(deps({ portOpen }));
     await expect(b.preflight!()).rejects.toThrow(/5901/);
   });
 });

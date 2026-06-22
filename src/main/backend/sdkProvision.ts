@@ -19,12 +19,12 @@
  *   <persist>\pebble-sdk\SDKs\<ver>\toolchain\lib\pc-bios\keymaps\  (seeded from qemu bundle)
  *   <persist>\pebble-sdk\SDKs\current  →  <persist>\pebble-sdk\SDKs\<ver>   (junction)
  *
- * The PURE helpers (pickSdkVersion / isSdkCoreManifestValid / planWinSdkProvision)
+ * The PURE helpers (pickSdkVersion / isSdkCoreManifestValid / planSdkProvision)
  * are unit-tested on any host; the effectful runner takes an injectable `ProvisionFs`
  * so the orchestration logic is tested without touching disk.
  */
 
-import { win32 as winPath } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import {
   mkdir,
   readdir,
@@ -37,8 +37,8 @@ import {
   stat,
   readlink,
 } from "node:fs/promises";
-import type { WinRuntimeCtx } from "./winRuntime.js";
-import { sdkBundleRoot, qemuExe, pebbleDataDir } from "./winRuntime.js";
+import type { BundledRuntimeCtx } from "./bundledRuntime.js";
+import { sdkBundleRoot, qemuExe, pebbleDataDir } from "./bundledRuntime.js";
 
 // ---------------------------------------------------------------------------
 // Pure helpers
@@ -96,7 +96,7 @@ export function isSdkCoreManifestValid(raw: string, expectVersion: string): bool
 }
 
 /** All resolved paths involved in provisioning a given version. PURE. */
-export interface WinSdkPaths {
+export interface SdkPaths {
   version: string;
   /** Bundle (read-only) sdk-core to copy FROM. */
   bundleSdkCore: string;
@@ -129,27 +129,27 @@ export interface WinSdkPaths {
  * Resolve every path provisioning touches for `version`. PURE — joins with
  * path.win32 so it is deterministic regardless of the host running it.
  */
-export function planWinSdkProvision(ctx: WinRuntimeCtx, version: string): WinSdkPaths {
+export function planSdkProvision(ctx: BundledRuntimeCtx, version: string): SdkPaths {
   const bundleRoot = sdkBundleRoot(ctx);
-  const qemuBundleDir = winPath.dirname(qemuExe(ctx));
+  const qemuBundleDir = dirname(qemuExe(ctx));
   const persist = pebbleDataDir(ctx);
-  const persistSdkRoot = winPath.join(persist, "pebble-sdk");
-  const persistSdks = winPath.join(persistSdkRoot, "SDKs");
-  const targetVersionDir = winPath.join(persistSdks, version);
-  const targetSdkCore = winPath.join(targetVersionDir, "sdk-core");
-  const bundleSdkCore = winPath.join(bundleRoot, "SDKs", version, "sdk-core");
+  const persistSdkRoot = join(persist, "pebble-sdk");
+  const persistSdks = join(persistSdkRoot, "SDKs");
+  const targetVersionDir = join(persistSdks, version);
+  const targetSdkCore = join(targetVersionDir, "sdk-core");
+  const bundleSdkCore = join(bundleRoot, "SDKs", version, "sdk-core");
   return {
     version,
     bundleSdkCore,
-    keymapsSrc: winPath.join(qemuBundleDir, "pc-bios", "keymaps"),
+    keymapsSrc: join(qemuBundleDir, "pc-bios", "keymaps"),
     persistSdks,
     targetVersionDir,
     targetSdkCore,
-    targetManifest: winPath.join(targetSdkCore, "manifest.json"),
-    targetKeymaps: winPath.join(targetVersionDir, "toolchain", "lib", "pc-bios", "keymaps"),
-    currentLink: winPath.join(persistSdks, "current"),
-    bundleFwRev: winPath.join(bundleSdkCore, ".fw-rev"),
-    targetFwRev: winPath.join(targetSdkCore, ".fw-rev"),
+    targetManifest: join(targetSdkCore, "manifest.json"),
+    targetKeymaps: join(targetVersionDir, "toolchain", "lib", "pc-bios", "keymaps"),
+    currentLink: join(persistSdks, "current"),
+    bundleFwRev: join(bundleSdkCore, ".fw-rev"),
+    targetFwRev: join(targetSdkCore, ".fw-rev"),
     persistSdkRoot,
   };
 }
@@ -237,12 +237,12 @@ export function realProvisionFs(): ProvisionFs {
       // otherwise remove whatever is there and create a fresh junction.
       try {
         const cur = await readlink(link);
-        if (winPath.resolve(cur) === winPath.resolve(target)) return;
+        if (resolve(cur) === resolve(target)) return;
       } catch {
         /* not a link / missing — fall through to (re)create */
       }
       await rm(link, { recursive: true, force: true }).catch(() => {});
-      await symlink(target, link, "junction");
+      await symlink(target, link, process.platform === "win32" ? "junction" : "dir");
     },
   };
 }
@@ -270,9 +270,9 @@ export function realProvisionFs(): ProvisionFs {
  * Returns true iff firmware was actually re-copied. Never throws for an expected
  * cause; the caller additionally wraps this so a refresh failure can't break boot.
  */
-export async function refreshWinSdkFirmware(
+export async function refreshSdkFirmware(
   fs: ProvisionFs,
-  p: WinSdkPaths,
+  p: SdkPaths,
   alreadyCopiedFresh: boolean,
   log: (msg: string) => void = () => {},
 ): Promise<boolean> {
@@ -290,21 +290,21 @@ export async function refreshWinSdkFirmware(
   log(`Refreshing emulator firmware (${targetRev || "none"} → ${bundleRev})…`);
 
   for (const board of FW_REFRESH_BOARDS) {
-    const bundleQemu = winPath.join(p.bundleSdkCore, "pebble", board, "qemu");
+    const bundleQemu = join(p.bundleSdkCore, "pebble", board, "qemu");
     // If the bundle lacks this board's blobs, skip it (don't throw).
-    const missing = !(await fs.exists(winPath.join(bundleQemu, FW_REFRESH_BLOBS[0])));
+    const missing = !(await fs.exists(join(bundleQemu, FW_REFRESH_BLOBS[0])));
     if (missing) {
       log(`  firmware for ${board} missing in bundle — skipping`);
       continue;
     }
 
-    const targetQemu = winPath.join(p.targetSdkCore, "pebble", board, "qemu");
+    const targetQemu = join(p.targetSdkCore, "pebble", board, "qemu");
     await fs.mkdirp(targetQemu);
     for (const blob of FW_REFRESH_BLOBS) {
-      await fs.copyFile(winPath.join(bundleQemu, blob), winPath.join(targetQemu, blob));
+      await fs.copyFile(join(bundleQemu, blob), join(targetQemu, blob));
     }
     // Drop the stale decompressed spi so it regenerates from the new template.
-    await fs.remove(winPath.join(p.persistSdkRoot, p.version, board, "qemu_spi_flash.bin"));
+    await fs.remove(join(p.persistSdkRoot, p.version, board, "qemu_spi_flash.bin"));
   }
 
   // Stamp the bundle's revision onto the target so this is a no-op next launch.
@@ -324,21 +324,21 @@ export async function refreshWinSdkFirmware(
  * Cached per process: a successful run is remembered so repeat calls are free;
  * a failure stays retryable.
  */
-export async function provisionWinSdk(
-  ctx: WinRuntimeCtx,
+export async function provisionSdk(
+  ctx: BundledRuntimeCtx,
   deps: ProvisionDeps = {},
 ): Promise<ProvisionResult> {
   const fs = deps.fs ?? realProvisionFs();
   const log = deps.onProgress ?? (() => {});
 
   const bundleRoot = sdkBundleRoot(ctx);
-  const bundleSdksDir = winPath.join(bundleRoot, "SDKs");
+  const bundleSdksDir = join(bundleRoot, "SDKs");
   const version = pickSdkVersion(await fs.list(bundleSdksDir));
   if (!version) {
     throw new Error(`no SDK version found in bundle at ${bundleSdksDir}`);
   }
 
-  const p = planWinSdkProvision(ctx, version);
+  const p = planSdkProvision(ctx, version);
   const actions = {
     copiedSdkCore: false,
     seededKeymaps: false,
@@ -359,7 +359,7 @@ export async function provisionWinSdk(
   }
 
   // 2. keymaps — qemu's `-L <ver>\toolchain\lib\pc-bios` needs keymaps\en-us.
-  const haveEnUs = await fs.exists(winPath.join(p.targetKeymaps, "en-us"));
+  const haveEnUs = await fs.exists(join(p.targetKeymaps, "en-us"));
   if (!haveEnUs) {
     log("Seeding emulator keymaps…");
     await fs.mkdirp(p.targetKeymaps);
@@ -368,9 +368,9 @@ export async function provisionWinSdk(
       throw new Error(`no keymaps found in bundle at ${p.keymapsSrc}`);
     }
     for (const name of names) {
-      await fs.copyFile(winPath.join(p.keymapsSrc, name), winPath.join(p.targetKeymaps, name)).catch(() => {});
+      await fs.copyFile(join(p.keymapsSrc, name), join(p.targetKeymaps, name)).catch(() => {});
     }
-    if (!(await fs.exists(winPath.join(p.targetKeymaps, "en-us")))) {
+    if (!(await fs.exists(join(p.targetKeymaps, "en-us")))) {
       throw new Error(`keymap en-us missing after seeding at ${p.targetKeymaps}`);
     }
     actions.seededKeymaps = true;
@@ -384,7 +384,7 @@ export async function provisionWinSdk(
   // provisioned install when the bundled `.fw-rev` changed. Gated to a no-op in
   // the common case; wrapped so a refresh failure can never break provisioning.
   try {
-    actions.refreshedFirmware = await refreshWinSdkFirmware(fs, p, actions.copiedSdkCore, log);
+    actions.refreshedFirmware = await refreshSdkFirmware(fs, p, actions.copiedSdkCore, log);
   } catch (e) {
     log(`Firmware refresh skipped (non-fatal): ${(e as Error)?.message ?? e}`);
   }
@@ -409,12 +409,12 @@ let provisioned: Promise<ProvisionResult> | null = null;
  * success is cached for the session; a failure clears the cache so the next call
  * retries.
  */
-export function ensureWinSdkProvisioned(
-  ctx: WinRuntimeCtx,
+export function ensureSdkProvisioned(
+  ctx: BundledRuntimeCtx,
   deps: ProvisionDeps = {},
 ): Promise<ProvisionResult> {
   if (provisioned) return provisioned;
-  provisioned = provisionWinSdk(ctx, deps).catch((e) => {
+  provisioned = provisionSdk(ctx, deps).catch((e) => {
     provisioned = null;
     throw e;
   });

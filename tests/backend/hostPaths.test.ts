@@ -18,7 +18,7 @@ describe("hostPaths", () => {
   it("matches the paths the emulator stack actually uses today", () => {
     expect(EMU_INFO_PATH).toBe("/tmp/pb-emulator.json");
     expect(EMU_LOG_PATH).toBe("/tmp/pebble-emu.log");
-    expect(SDK_ROOT).toBe("$HOME/.local/share/pebble-sdk/SDKs/current");
+    expect(SDK_ROOT).toBe("$HOME/.pebble-sdk/SDKs/current");
   });
 });
 

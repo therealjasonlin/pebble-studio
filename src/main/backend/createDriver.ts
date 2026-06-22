@@ -4,15 +4,15 @@ import { spawnRunner } from "./spawnRunner.js";
 import { selectDriverKind, type ProbeResult, type DriverKind } from "./driverFactory.js";
 import { NativeDriver } from "./NativeDriver.js";
 import { WslDriver } from "./WslDriver.js";
-import { WindowsNativeDriver } from "./WindowsNativeDriver.js";
+import { BundledNativeDriver } from "./BundledNativeDriver.js";
 import { bootEmulator, stopEmulator, makeWslBootDeps } from "./bootEmulator.js";
-import { makeWinBootDeps } from "./winBootDeps.js";
-import { defaultCtx, pebbleCmd, bundledToolsPresent, pebblePyExe } from "./winRuntime.js";
-import { winFakeTimeCtlPath, winQemuFakeTimeLogPath } from "./winTimeShim.js";
+import { makeBundledBootDeps } from "./bundledBootDeps.js";
+import { defaultCtx, pebbleCmd, bundledToolsPresent, pebblePyExe } from "./bundledRuntime.js";
+import { winFakeTimeCtlPath, winQemuFakeTimeLogPath } from "./bundledTimeShim.js";
 import { simEnvPath } from "./simEnv.js";
-import { winHostPaths } from "./hostPaths.js";
-import { deployWinHelpers } from "./winHelpers.js";
-import { WinInputChannel, readPypkjsPort } from "./winInputChannel.js";
+import { winHostPaths, nativeHostEmuInfoPath } from "./hostPaths.js";
+import { deployWinHelpers } from "./bundledHelpers.js";
+import { BundledInputChannel, readPypkjsPort } from "./bundledInputChannel.js";
 import { join as pathJoin } from "node:path";
 import type { BackendDriver } from "./BackendDriver.js";
 
@@ -27,7 +27,7 @@ async function onPath(cmd: string): Promise<boolean> {
   const [probe, args] =
     process.platform === "win32"
       ? ["where", [cmd]]
-      : ["which", [cmd]];
+      : ["bash", ["-lc", `which ${cmd}`]];
   const r = await spawnRunner(probe, args).catch(() => ({ code: 1 } as { code: number }));
   return r.code === 0;
 }
@@ -48,7 +48,7 @@ async function qemuAvailable(): Promise<boolean> {
 
   // Probe the well-known pebble-tool SDK location used by bootEmulator.ts.
   const home = process.env.HOME ?? "";
-  const sdkQemu = `${home}/.local/share/pebble-sdk/SDKs/current/toolchain/bin/qemu-pebble`;
+  const sdkQemu = `${home}/.pebble-sdk/SDKs/current/toolchain/bin/qemu-pebble`;
   try {
     await access(sdkQemu);
     return true;
@@ -71,24 +71,24 @@ async function qemuAvailable(): Promise<boolean> {
   return false;
 }
 
-type DriverClass = typeof NativeDriver | typeof WslDriver | typeof WindowsNativeDriver;
+type DriverClass = typeof NativeDriver | typeof WslDriver | typeof BundledNativeDriver;
 
 /** Maps a driver kind to its class (used by createDriver + a construction test).
  * The `never` guard makes a new DriverKind member a compile error here. */
 export function driverClassForKind(kind: DriverKind): DriverClass {
   if (kind === "native") return NativeDriver;
   if (kind === "wsl") return WslDriver;
-  if (kind === "windows-native") return WindowsNativeDriver;
+  if (kind === "bundled-native") return BundledNativeDriver;
   const _never: never = kind;
   throw new Error(`Unknown driver kind: ${String(_never)}`);
 }
 
 export async function createDriver(override?: DriverKind): Promise<{ driver: BackendDriver; kind: DriverKind }> {
-  // On win32, resolve the self-contained native stack once. When the bundled
-  // qemu + python are present, selection prefers windows-native regardless of
+  // Resolve the self-contained native stack once. When the bundled
+  // qemu + python are present, selection prefers bundled-native regardless of
   // the system PATH; the same ctx builds the path-independent pebble invocation.
-  const winCtx = process.platform === "win32" ? await defaultCtx() : null;
-  const bundled = winCtx ? bundledToolsPresent(winCtx) : false;
+  const ctx = await defaultCtx();
+  const bundled = bundledToolsPresent(ctx);
 
   const probe: ProbeResult = {
     platform: process.platform,
@@ -100,9 +100,7 @@ export async function createDriver(override?: DriverKind): Promise<{ driver: Bac
   const kind = selectDriverKind(probe);
 
   let driver: BackendDriver;
-  if (kind === "windows-native") {
-    // windows-native is only selectable on win32, so winCtx is non-null here.
-    const ctx = winCtx!;
+  if (kind === "bundled-native") {
     // Custom-time control file. Custom time / freeze / rate is now built INTO the
     // bundled qemu-pebble.exe: the Pebble RTC reads PEBBLE_FAKETIME_FILE directly
     // (qemu hw/timer/stm32_pebble_rtc.c → pebble_faketime_us()). This replaced the
@@ -145,21 +143,21 @@ export async function createDriver(override?: DriverKind): Promise<{ driver: Bac
       child.unref();
       child.on("error", () => { /* readiness is checked via ports/state file */ });
     };
-    const winDeps = makeWinBootDeps({ run: spawnRunner, detachSpawn, pebble });
+    const bundledDeps = makeBundledBootDeps({ run: spawnRunner, detachSpawn, pebble });
     // Deploy the persistent input helper and wire it to the bundled interpreter.
     // The input channel removes the per-press `pebble emu-button` spawn latency.
     const pyExe = pebblePyExe(ctx);
     const { inputHelperPath } = deployWinHelpers(pathJoin(ctx.userDataDir, "helpers"));
-    const emuInfoPath = winHostPaths().emuInfo;
-    const inputChannel = new WinInputChannel({
+    const emuInfoPath = nativeHostEmuInfoPath();
+    const inputChannel = new BundledInputChannel({
       helper: { pythonExe: pyExe, helperPath: inputHelperPath },
       readPort: () => readPypkjsPort(emuInfoPath),
     });
-    driver = new WindowsNativeDriver({
+    driver = new BundledNativeDriver({
       run: spawnRunner,
       pebble,
-      boot: (id, token, onStep) => bootEmulator(id, winDeps, token, onStep),
-      stop: () => stopEmulator({ killAll: winDeps.killAll }),
+      boot: (id, token, onStep) => bootEmulator(id, bundledDeps, token, onStep),
+      stop: () => stopEmulator({ killAll: bundledDeps.killAll }),
       inputChannel,
       timeShim: { ctlPath },
     });

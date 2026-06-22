@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { WinInputChannel, readPypkjsPort, type InputChild } from "../../src/main/backend/winInputChannel.js";
+import { BundledInputChannel, readPypkjsPort, type InputChild } from "../../src/main/backend/bundledInputChannel.js";
 
 /** A fake InputChild that records writes and can be "killed". */
 function makeFakeChild() {
@@ -32,11 +32,11 @@ function makeShotChild() {
 
 const HELPER = { pythonExe: "py.exe", helperPath: "C:/h/pb-input-helper.py" };
 
-describe("WinInputChannel", () => {
+describe("BundledInputChannel", () => {
   it("spawns the helper for the current port and writes a newline-terminated command", () => {
     const fake = makeFakeChild();
     const spawnChild = vi.fn(() => fake.child);
-    const ch = new WinInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild });
+    const ch = new BundledInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild });
 
     expect(ch.send("click select")).toBe(true);
 
@@ -48,7 +48,7 @@ describe("WinInputChannel", () => {
   it("reuses the same child across sends while the port is unchanged", () => {
     const fake = makeFakeChild();
     const spawnChild = vi.fn(() => fake.child);
-    const ch = new WinInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild });
+    const ch = new BundledInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild });
 
     ch.send("click up");
     ch.send("click down");
@@ -65,7 +65,7 @@ describe("WinInputChannel", () => {
     const children = [first.child, second.child];
     let idx = 0;
     const spawnChild = vi.fn(() => children[idx++]);
-    const ch = new WinInputChannel({ helper: HELPER, readPort: () => port, spawnChild });
+    const ch = new BundledInputChannel({ helper: HELPER, readPort: () => port, spawnChild });
 
     ch.send("click select"); // spawns first @5555
     port = 6666; // reboot → new pypkjs port
@@ -82,7 +82,7 @@ describe("WinInputChannel", () => {
     const children = [first.child, second.child];
     let idx = 0;
     const spawnChild = vi.fn(() => children[idx++]);
-    const ch = new WinInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild });
+    const ch = new BundledInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild });
 
     ch.send("click select"); // first
     first.die(); // helper process exited
@@ -93,7 +93,7 @@ describe("WinInputChannel", () => {
 
   it("returns false (caller falls back to CLI) when not booted (no port)", () => {
     const spawnChild = vi.fn();
-    const ch = new WinInputChannel({ helper: HELPER, readPort: () => null, spawnChild });
+    const ch = new BundledInputChannel({ helper: HELPER, readPort: () => null, spawnChild });
 
     expect(ch.send("click select")).toBe(false);
     expect(spawnChild).not.toHaveBeenCalled();
@@ -105,7 +105,7 @@ describe("WinInputChannel", () => {
     const children = [first.child, second.child];
     let idx = 0;
     const spawnChild = vi.fn(() => children[idx++]);
-    const ch = new WinInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild });
+    const ch = new BundledInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild });
 
     ch.send("click select");
     ch.stop();
@@ -121,17 +121,17 @@ describe("WinInputChannel", () => {
       kill: () => {},
       alive: () => true,
     };
-    const ch = new WinInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => throwingChild });
+    const ch = new BundledInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => throwingChild });
 
     expect(ch.send("click select")).toBe(false);
   });
 });
 
-describe("WinInputChannel.screenshot (framebuffer)", () => {
+describe("BundledInputChannel.screenshot (framebuffer)", () => {
   it("writes the screenshot command and resolves true on an OK ack", async () => {
     const fake = makeShotChild();
     const spawnChild = vi.fn(() => fake.child);
-    const ch = new WinInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild });
+    const ch = new BundledInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild });
 
     const p = ch.screenshot("C:/caps/shot.png");
     expect(fake.writes).toEqual(["screenshot C:/caps/shot.png\n"]);
@@ -141,7 +141,7 @@ describe("WinInputChannel.screenshot (framebuffer)", () => {
 
   it("resolves false on an ERR ack (caller falls back to canvas)", async () => {
     const fake = makeShotChild();
-    const ch = new WinInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
+    const ch = new BundledInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
 
     const p = ch.screenshot("C:/caps/shot.png");
     fake.emit("ERR screenshot failed");
@@ -150,7 +150,7 @@ describe("WinInputChannel.screenshot (framebuffer)", () => {
 
   it("ignores the helper's 'ready' line and other noise while waiting", async () => {
     const fake = makeShotChild();
-    const ch = new WinInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
+    const ch = new BundledInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
 
     const p = ch.screenshot("C:/caps/shot.png");
     fake.emit("ready");
@@ -161,27 +161,27 @@ describe("WinInputChannel.screenshot (framebuffer)", () => {
 
   it("resolves false on timeout when the helper never acks", async () => {
     const fake = makeShotChild();
-    const ch = new WinInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
+    const ch = new BundledInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
 
     const p = ch.screenshot("C:/caps/shot.png", 5);
     expect(await p).toBe(false);
   });
 
   it("returns false when not booted (no port)", async () => {
-    const ch = new WinInputChannel({ helper: HELPER, readPort: () => null, spawnChild: vi.fn() });
+    const ch = new BundledInputChannel({ helper: HELPER, readPort: () => null, spawnChild: vi.fn() });
     expect(await ch.screenshot("C:/caps/shot.png")).toBe(false);
   });
 
   it("returns false when the child can't read stdout (no onLine)", async () => {
     // The bare input fake has no onLine, so acks can't arrive → fall back.
     const fake = makeFakeChild();
-    const ch = new WinInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
+    const ch = new BundledInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
     expect(await ch.screenshot("C:/caps/shot.png")).toBe(false);
   });
 
   it("rejects a second concurrent screenshot while one is pending", async () => {
     const fake = makeShotChild();
-    const ch = new WinInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
+    const ch = new BundledInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
 
     const p1 = ch.screenshot("C:/caps/a.png");
     const p2 = ch.screenshot("C:/caps/b.png"); // pending slot busy → immediate false
@@ -192,7 +192,7 @@ describe("WinInputChannel.screenshot (framebuffer)", () => {
 
   it("does not disturb the fire-and-forget input path", () => {
     const fake = makeShotChild();
-    const ch = new WinInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
+    const ch = new BundledInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
 
     // Buttons still go through as plain stdin writes; the screenshot ack reader is
     // wired but only resolves OK/ERR (input emits nothing on stdout here).
@@ -202,7 +202,7 @@ describe("WinInputChannel.screenshot (framebuffer)", () => {
 
   it("stop() fails an in-flight screenshot so it can't hang", async () => {
     const fake = makeShotChild();
-    const ch = new WinInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
+    const ch = new BundledInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
 
     const p = ch.screenshot("C:/caps/shot.png");
     ch.stop();
@@ -210,10 +210,10 @@ describe("WinInputChannel.screenshot (framebuffer)", () => {
   });
 });
 
-describe("WinInputChannel.insertPin / deletePin", () => {
+describe("BundledInputChannel.insertPin / deletePin", () => {
   it("writes the pin command (id, unix, title) and resolves true on OK", async () => {
     const fake = makeShotChild();
-    const ch = new WinInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
+    const ch = new BundledInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
     const p = ch.insertPin("studio-sample-pin", 1781452800, "Sample Pin");
     expect(fake.writes).toEqual(["pin studio-sample-pin 1781452800 Sample Pin\n"]);
     fake.emit("OK pin studio-sample-pin");
@@ -222,7 +222,7 @@ describe("WinInputChannel.insertPin / deletePin", () => {
 
   it("insertPin resolves false on ERR", async () => {
     const fake = makeShotChild();
-    const ch = new WinInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
+    const ch = new BundledInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
     const p = ch.insertPin("studio-sample-pin", 1781452800, "Sample Pin");
     fake.emit("ERR boom");
     expect(await p).toBe(false);
@@ -230,7 +230,7 @@ describe("WinInputChannel.insertPin / deletePin", () => {
 
   it("deletePin writes unpin and resolves true on OK", async () => {
     const fake = makeShotChild();
-    const ch = new WinInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
+    const ch = new BundledInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
     const p = ch.deletePin("studio-sample-pin");
     expect(fake.writes).toEqual(["unpin studio-sample-pin\n"]);
     fake.emit("OK unpin");
@@ -238,19 +238,19 @@ describe("WinInputChannel.insertPin / deletePin", () => {
   });
 
   it("insertPin resolves false when not booted (no port)", async () => {
-    const ch = new WinInputChannel({ helper: HELPER, readPort: () => null, spawnChild: vi.fn() });
+    const ch = new BundledInputChannel({ helper: HELPER, readPort: () => null, spawnChild: vi.fn() });
     expect(await ch.insertPin("studio-sample-pin", 1, "x")).toBe(false);
   });
 
   it("insertPin resolves false on timeout when never acked", async () => {
     const fake = makeShotChild();
-    const ch = new WinInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
+    const ch = new BundledInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
     expect(await ch.insertPin("studio-sample-pin", 1, "x", 5)).toBe(false);
   });
 
   it("rejects newline/control-char injection in id or title without writing", async () => {
     const fake = makeShotChild();
-    const ch = new WinInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
+    const ch = new BundledInputChannel({ helper: HELPER, readPort: () => 5555, spawnChild: () => fake.child });
     // A title carrying a newline must NOT reach the helper (would inject a 2nd command).
     expect(await ch.insertPin("studio-sample-pin", 1, "evil\nclick select")).toBe(false);
     // An id with whitespace/control chars is rejected (helper parses id as one token).

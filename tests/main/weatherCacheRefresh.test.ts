@@ -5,13 +5,14 @@ import {
   refreshWeatherAfterSimChange,
   type WeatherRefreshDeps,
 } from "../../src/main/backend/weatherCacheRefresh.js";
-import type { WinRuntimeCtx } from "../../src/main/backend/winRuntime.js";
+import type { BundledRuntimeCtx } from "../../src/main/backend/bundledRuntime.js";
 
-const ctx: WinRuntimeCtx = {
+const ctx: BundledRuntimeCtx = {
   packaged: false,
   resourcesPath: "C:\\res",
   repoRoot: "C:\\repo",
   userDataDir: "C:\\Users\\me\\AppData\\Roaming\\pebble-studio",
+  platform: "win32",
   exists: () => true, // vendor/pebble-py resolves
 };
 

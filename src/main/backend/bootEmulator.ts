@@ -330,8 +330,8 @@ function makeEnsureKeymap(shell: Shell) {
     // -p / -n keep this idempotent. Done in one shell so $HOME expands in-distro.
     await shell.run(
       `mkdir -p "${PC_BIOS}/keymaps" && ` +
-      `cp -n "${STUB_KEYMAP}" "${PC_BIOS}/keymaps/en-us" 2>/dev/null; ` +
-      `cp -n "${STUB_KEYMAP}" "${PC_BIOS}/en-us" 2>/dev/null; true`,
+      `cp -n "${STUB_KEYMAP}" "${PC_BIOS}/keymaps/en-us" 2>/dev/null || touch "${PC_BIOS}/keymaps/en-us"; ` +
+      `cp -n "${STUB_KEYMAP}" "${PC_BIOS}/en-us" 2>/dev/null || touch "${PC_BIOS}/en-us"; true`,
     );
   };
 }

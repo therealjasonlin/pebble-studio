@@ -148,7 +148,7 @@ export class NativeDriver implements BackendDriver {
  * lives here in the driver that owns the booted VNC stack.
  */
 function withVnc(args: string[]): string[] {
-  if (!args.includes("--emulator") || args.includes("--vnc")) return args;
+  if (!args.includes("--emulator") || args.includes("--vnc") || args[0] === "screenshot") return args;
   // Insert right after the `--emulator <platform>` pair so flag ordering is sane.
   const i = args.indexOf("--emulator");
   const out = args.slice();

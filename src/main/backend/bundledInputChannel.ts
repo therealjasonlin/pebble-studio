@@ -53,7 +53,7 @@ export interface InputChild {
   onLine?(cb: (line: string) => void): void;
 }
 
-export interface WinInputChannelDeps {
+export interface BundledInputChannelDeps {
   helper: InputHelperPaths;
   /** Current pypkjs port from the emulator state file, or null if not booted. */
   readPort: () => number | null;
@@ -89,7 +89,7 @@ function defaultSpawnChild(pythonExe: string, args: string[]): InputChild {
   };
 }
 
-export class WinInputChannel {
+export class BundledInputChannel {
   private child: InputChild | null = null;
   private port: number | null = null;
   private readonly spawnChild: (pythonExe: string, args: string[]) => InputChild;
@@ -98,7 +98,7 @@ export class WinInputChannel {
    * concurrently, so a single slot suffices. */
   private pendingAck: ((ok: boolean) => void) | null = null;
 
-  constructor(private readonly deps: WinInputChannelDeps) {
+  constructor(private readonly deps: BundledInputChannelDeps) {
     this.spawnChild = deps.spawnChild ?? defaultSpawnChild;
   }
 
@@ -181,7 +181,7 @@ export class WinInputChannel {
    * is parsed as a single whitespace-delimited token by the helper, so it is
    * constrained to a safe charset; the title may contain spaces but no control
    * chars (defense-in-depth — awaitAck also rejects CR/LF). Invalid input → false. */
-  insertPin(id: string, unixTime: number, title: string, timeoutMs = WinInputChannel.ACK_TIMEOUT_MS): Promise<boolean> {
+  insertPin(id: string, unixTime: number, title: string, timeoutMs = BundledInputChannel.ACK_TIMEOUT_MS): Promise<boolean> {
     if (!PIN_ID_RE.test(id) || !Number.isFinite(unixTime) || /[\x00-\x1f]/.test(title)) {
       return Promise.resolve(false);
     }
@@ -189,7 +189,7 @@ export class WinInputChannel {
   }
 
   /** Delete the timeline pin with the given id (same id constraint as insertPin). */
-  deletePin(id: string, timeoutMs = WinInputChannel.ACK_TIMEOUT_MS): Promise<boolean> {
+  deletePin(id: string, timeoutMs = BundledInputChannel.ACK_TIMEOUT_MS): Promise<boolean> {
     if (!PIN_ID_RE.test(id)) return Promise.resolve(false);
     return this.awaitAck(`unpin ${id}`, timeoutMs);
   }

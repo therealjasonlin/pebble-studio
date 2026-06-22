@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { INPUT_HELPER_PY } from "../../src/main/backend/winHelpers.js";
+import { INPUT_HELPER_PY } from "../../src/main/backend/bundledHelpers.js";
 
 describe("INPUT_HELPER_PY pin support", () => {
   it("imports the timeline protocol messages", () => {

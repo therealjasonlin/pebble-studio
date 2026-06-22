@@ -9,14 +9,14 @@
 // relaunching the face then refetches on its handshake.
 import { win32 as winPath } from "node:path";
 import type { PebbleCommand } from "./pebbleCli.js";
-import { pebblePyExe, pebbleDataDir, type WinRuntimeCtx } from "./winRuntime.js";
+import { pebblePyExe, pebbleDataDir, type BundledRuntimeCtx } from "./bundledRuntime.js";
 
 /**
  * The localStorage persist root pypkjs writes under. pebble-tool provisions the
  * SDK + per-app state at `<userData>/pebble-data/pebble-sdk`, and pypkjs keeps each
  * app's localStorage at `<root>/<ver>/<board>/localstorage/<uuid>.dat`.
  */
-export function localStorageRoot(ctx: WinRuntimeCtx): string {
+export function localStorageRoot(ctx: BundledRuntimeCtx): string {
   return winPath.join(pebbleDataDir(ctx), "pebble-sdk");
 }
 
@@ -26,7 +26,7 @@ export function localStorageRoot(ctx: WinRuntimeCtx): string {
  * site-packages, exactly like pypkjs is run with `-m`). Touches only files, so no
  * emulator env (PEBBLE_QEMU_PATH/XDG_DATA_HOME) is needed.
  */
-export function clearWeatherCacheArgv(ctx: WinRuntimeCtx): PebbleCommand {
+export function clearWeatherCacheArgv(ctx: BundledRuntimeCtx): PebbleCommand {
   return {
     cmd: pebblePyExe(ctx),
     args: ["-m", "pebble_studio_clearcache", localStorageRoot(ctx)],

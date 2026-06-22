@@ -21,7 +21,7 @@ export type WinRunner = (cmd: string, args: string[], env?: Record<string, strin
  */
 export type PebbleCmdBuilder = (args: string[]) => PebbleCommand;
 
-export interface WinBootDepsImpl {
+export interface BundledBootDepsImpl {
   run: WinRunner;
   /** Read a file as utf8; resolves "" if missing. Injected for tests. */
   readFile?: (path: string) => Promise<string>;
@@ -64,7 +64,7 @@ function stateHasLivePid(json: string, id: PlatformId): boolean {
   } catch { return false; }
 }
 
-export function makeWinBootDeps(impl: WinBootDepsImpl): SpawnDeps {
+export function makeBundledBootDeps(impl: BundledBootDepsImpl): SpawnDeps {
   const run = impl.run;
   const readFile = impl.readFile ?? (async (p: string) => fsReadFile(p, "utf8").catch(() => ""));
   const rm = impl.rm ?? (async (p: string) => { await fsRm(p, { force: true }).catch(() => {}); });
@@ -73,17 +73,24 @@ export function makeWinBootDeps(impl: WinBootDepsImpl): SpawnDeps {
   // Default: bare `pebble` on PATH (legacy / non-bundled). Production injects the
   // bundled-python invocation (winRuntime.pebbleCmd) carrying the runtime env.
   const pebble = impl.pebble ?? ((args: string[]): PebbleCommand => ({ cmd: "pebble", args }));
-  const paths = impl.paths ?? winHostPaths();
+  const paths = impl.paths ?? (process.platform === "win32" ? winHostPaths() : { emuInfo: "/tmp/pb-emulator.json", emuLog: "/tmp/pebble-emu.log", sdkRoot: "" });
   const checkPortOpen = impl.portOpen ?? portOpen;
 
   const diagnose = async (): Promise<BootProbe> => {
-    const tl = await run("tasklist", tasklistArgs("qemu-pebble.exe")).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+    let qemuAlive = false;
+    if (process.platform === "win32") {
+      const tl = await run("tasklist", tasklistArgs("qemu-pebble.exe")).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+      qemuAlive = parseTasklistAlive(tl.stdout);
+    } else {
+      const tl = await run("pgrep", ["-f", "[q]emu-pebble"]).catch(() => ({ code: 1, stdout: "", stderr: "" }));
+      qemuAlive = tl.code === 0;
+    }
     const stateRaw = await readFile(paths.emuInfo);
     const [rfbOpen, wsOpen] = await Promise.all([
       checkPortOpen("127.0.0.1", VNC_RFB_PORT),
       checkPortOpen("127.0.0.1", WS_PORT),
     ]);
-    return { qemuAlive: parseTasklistAlive(tl.stdout), stateFile: stateRaw.trim().length > 0, rfbOpen, wsOpen };
+    return { qemuAlive, stateFile: stateRaw.trim().length > 0, rfbOpen, wsOpen };
   };
 
   const waitForEmuInfo = async (id: PlatformId, timeoutMs: number, token?: BootToken): Promise<void> => {
@@ -120,15 +127,18 @@ export function makeWinBootDeps(impl: WinBootDepsImpl): SpawnDeps {
     //    bring the supervisor down before we force-kill the rest. Best-effort.
     const k = pebble(["kill"]);
     await run(k.cmd, k.args, k.env).catch(() => {});
-    // 2. Force-kill by PID from the state file. THE PROCESS-LEAK FIX: pypkjs AND
-    //    websockify both run as python.exe, so an image-only kill leaks them (and
-    //    we must not blanket-kill python.exe). The state file lists every pid we
-    //    own; /T also takes each pid's child tree.
+    // 2. Force-kill by PID from the state file.
     const pids = parseStatePids(await readFile(paths.emuInfo));
-    for (const pid of pids) await safeRun("taskkill", taskkillByPidArgs(pid));
-    // 3. Backstop: kill any remaining qemu-pebble.exe by image (covers a pid a
-    //    partial/absent state-file write missed). Safe — that image is uniquely ours.
-    await safeRun("taskkill", taskkillByImageArgs("qemu-pebble.exe"));
+    if (process.platform === "win32") {
+      for (const pid of pids) await safeRun("taskkill", taskkillByPidArgs(pid));
+      await safeRun("taskkill", taskkillByImageArgs("qemu-pebble.exe"));
+    } else {
+      for (const pid of pids) await safeRun("kill", ["-9", pid.toString()]);
+      await safeRun("pkill", ["-9", "-f", "[q]emu-pebble"]);
+      await safeRun("pkill", ["-9", "-f", "[e]mu-control"]);
+      await safeRun("pkill", ["-9", "-f", "[w]ebsockify"]);
+      await safeRun("pkill", ["-9", "-f", "[m] pypkjs"]);
+    }
     await rm(paths.emuInfo);
     // taskkill /F is async; we settle on ports free as a proxy for exit (the port
     // is released on process exit on Windows).
