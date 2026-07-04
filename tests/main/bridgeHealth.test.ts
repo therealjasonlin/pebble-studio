@@ -138,12 +138,13 @@ describe("buildHealthCommand", () => {
   });
 
   // Structural assertions: a gutted command body must not pass these.
-  it("reads qemu process state from /proc/<qemuPid>/status", () => {
-    expect(buildHealthCommand(pids)).toContain("/proc/1854238/status");
+  it("reads qemu process state via portable `ps -o state=` (not Linux-only /proc)", () => {
+    expect(buildHealthCommand(pids)).toContain("ps -o state= -p 1854238");
+    expect(buildHealthCommand(pids)).not.toContain("/proc/");
   });
 
-  it("reads pypkjs process state from /proc/<pypkjsPid>/status", () => {
-    expect(buildHealthCommand(pids)).toContain("/proc/1854276/status");
+  it("reads pypkjs process state via portable `ps -o state=`", () => {
+    expect(buildHealthCommand(pids)).toContain("ps -o state= -p 1854276");
   });
 
   it("probes TCP via /dev/tcp/localhost/<pypkjsPort>", () => {

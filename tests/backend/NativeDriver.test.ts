@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { NativeDriver } from "../../src/main/backend/NativeDriver.js";
 import { _resetShimState, isShimReady } from "../../src/main/backend/timeShim.js";
 
@@ -166,6 +166,58 @@ describe("NativeDriver", () => {
       const d = new NativeDriver({ run });
       // Even if the runner always fails, it should not throw
       await expect(d.ensureTimeShim()).resolves.toBeDefined();
+    });
+  });
+
+  describe("ensureTimeShim — macOS shim routing (deps.macShim)", () => {
+    const REAL = "/Users/x/Library/Application Support/Pebble SDK/q/qemu-pebble";
+    const WRAP = "/home/.pebble-studio/qemu-pebble";
+    const CTL = "/home/.pebble-studio/pb-faketime.ctl";
+    // These tests mutate process.env; snapshot + restore the two keys they touch.
+    let savedQemu: string | undefined;
+    let savedFt: string | undefined;
+    beforeEach(() => {
+      savedQemu = process.env.PEBBLE_QEMU_PATH;
+      savedFt = process.env.PEBBLE_FAKETIME_FILE;
+      delete process.env.PEBBLE_QEMU_PATH;
+      delete process.env.PEBBLE_FAKETIME_FILE;
+    });
+    afterEach(() => {
+      if (savedQemu === undefined) delete process.env.PEBBLE_QEMU_PATH;
+      else process.env.PEBBLE_QEMU_PATH = savedQemu;
+      if (savedFt === undefined) delete process.env.PEBBLE_FAKETIME_FILE;
+      else process.env.PEBBLE_FAKETIME_FILE = savedFt;
+    });
+
+    it("shim ready → routes PEBBLE_QEMU_PATH to the wrapper + sets the shared ctl file", async () => {
+      const run = vi.fn(async () => ({ code: 0, stdout: "", stderr: "" }));
+      const ensure = vi.fn(async () => true);
+      const d = new NativeDriver({ run, macShim: { realQemu: REAL, wrapper: WRAP, ctl: CTL, ensure } });
+      const ok = await d.ensureTimeShim();
+      expect(ok).toBe(true);
+      expect(ensure).toHaveBeenCalledWith(REAL);
+      expect(process.env.PEBBLE_QEMU_PATH).toBe(WRAP);
+      expect(process.env.PEBBLE_FAKETIME_FILE).toBe(CTL);
+      // The mac path must NOT fall through to the Linux bash -lc runner.
+      expect(run).not.toHaveBeenCalled();
+    });
+
+    it("shim NOT ready → keeps the raw qemu + leaves no fake-time file (real time)", async () => {
+      const run = vi.fn(async () => ({ code: 0, stdout: "", stderr: "" }));
+      const ensure = vi.fn(async () => false);
+      const d = new NativeDriver({ run, macShim: { realQemu: REAL, wrapper: WRAP, ctl: CTL, ensure } });
+      const ok = await d.ensureTimeShim();
+      expect(ok).toBe(false);
+      expect(process.env.PEBBLE_QEMU_PATH).toBe(REAL);
+      expect(process.env.PEBBLE_FAKETIME_FILE).toBeUndefined();
+    });
+
+    it("ensure throwing degrades to not-ready (raw qemu, no throw)", async () => {
+      const run = vi.fn(async () => ({ code: 0, stdout: "", stderr: "" }));
+      const ensure = vi.fn(async () => { throw new Error("boom"); });
+      const d = new NativeDriver({ run, macShim: { realQemu: REAL, wrapper: WRAP, ctl: CTL, ensure } });
+      await expect(d.ensureTimeShim()).resolves.toBe(false);
+      expect(process.env.PEBBLE_QEMU_PATH).toBe(REAL);
     });
   });
 });

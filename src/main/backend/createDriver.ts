@@ -2,13 +2,14 @@ import { access } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { spawnRunner } from "./spawnRunner.js";
 import { selectDriverKind, type ProbeResult, type DriverKind } from "./driverFactory.js";
-import { NativeDriver } from "./NativeDriver.js";
+import { NativeDriver, type NativeDriverDeps } from "./NativeDriver.js";
 import { WslDriver } from "./WslDriver.js";
 import { WindowsNativeDriver } from "./WindowsNativeDriver.js";
 import { bootEmulator, stopEmulator, makeWslBootDeps } from "./bootEmulator.js";
 import { makeWinBootDeps } from "./winBootDeps.js";
 import { defaultCtx, pebbleCmd, bundledToolsPresent, pebblePyExe } from "./winRuntime.js";
 import { winFakeTimeCtlPath, winQemuFakeTimeLogPath } from "./winTimeShim.js";
+import { macStudioDir, macDeployPaths, ensureMacSitecustomize } from "./macTimeShim.js";
 import { simEnvPath } from "./simEnv.js";
 import { winHostPaths } from "./hostPaths.js";
 import { deployWinHelpers } from "./winHelpers.js";
@@ -33,28 +34,49 @@ async function onPath(cmd: string): Promise<boolean> {
 }
 
 /**
+ * Resolve an absolute `qemu-pebble` path from the well-known SDK toolchain
+ * locations (which are NOT on the system PATH), or null if none exist.
+ *
+ * pebble-tool ships qemu-pebble inside its SDK toolchain directory. The layout
+ * differs by platform:
+ *   - Linux/WSL (classic SDK): `~/.local/share/pebble-sdk/SDKs/current/toolchain/bin/`
+ *   - macOS (modern uv-installed pebble-tool): `~/Library/Application Support/
+ *     Pebble SDK/SDKs/current/toolchain/bin/`
+ * We return the resolved path so the caller can both answer "is qemu available"
+ * AND export it as PEBBLE_QEMU_PATH — pebble-tool otherwise defaults to a bare
+ * `qemu-pebble` PATH lookup (sdk/emulator.py), which fails when the binary lives
+ * only inside the SDK toolchain dir.
+ */
+export async function resolveSdkQemuPath(): Promise<string | null> {
+  const home = process.env.HOME ?? "";
+  const candidates: string[] = [
+    `${home}/.local/share/pebble-sdk/SDKs/current/toolchain/bin/qemu-pebble`,
+  ];
+  if (process.platform === "darwin") {
+    candidates.push(
+      `${home}/Library/Application Support/Pebble SDK/SDKs/current/toolchain/bin/qemu-pebble`,
+    );
+  }
+  for (const p of candidates) {
+    try {
+      await access(p);
+      return p;
+    } catch {
+      /* try next candidate */
+    }
+  }
+  return null;
+}
+
+/**
  * Like `onPath` but also accepts an absolute path that the user may have
  * configured via an environment variable, or checks known SDK install locations
- * as a fallback.
- *
- * For `qemu-pebble` specifically, the pebble-tool ships qemu-pebble inside its
- * SDK toolchain directory (`~/.local/share/pebble-sdk/SDKs/<ver>/toolchain/bin/`)
- * which is not on the system PATH. We probe that well-known path so that an SDK
- * install without a manual PATH entry still registers as available.
+ * as a fallback (see resolveSdkQemuPath).
  */
 async function qemuAvailable(): Promise<boolean> {
   if (await onPath("qemu-pebble")) return true;
   if (process.env.PEBBLE_QEMU_PATH) return true;
-
-  // Probe the well-known pebble-tool SDK location used by bootEmulator.ts.
-  const home = process.env.HOME ?? "";
-  const sdkQemu = `${home}/.local/share/pebble-sdk/SDKs/current/toolchain/bin/qemu-pebble`;
-  try {
-    await access(sdkQemu);
-    return true;
-  } catch {
-    /* fall through */
-  }
+  if (await resolveSdkQemuPath()) return true;
 
   // Probe the Windows bundled SDK location (win32 only).
   if (process.platform === "win32") {
@@ -185,7 +207,40 @@ export async function createDriver(override?: DriverKind): Promise<{ driver: Bac
       timeShim: { ctlPath },
     });
   } else if (kind === "native") {
-    driver = new NativeDriver({ run: spawnRunner }); // native default boot/stop
+    // macOS runs the modern uv-installed pebble-tool. Two of its behaviors differ
+    // from the classic Linux SDK the native path was written against, and both are
+    // reconciled here by exporting env into THIS process so every child pebble/bash
+    // inherits it (mirrors the win32 branch's env setup above):
+    //   1. State file: pebble-tool writes pb-emulator.json to tempfile.gettempdir()
+    //      (== $TMPDIR, e.g. /var/folders/…), but the app + its embedded python
+    //      helpers read /tmp/pb-emulator.json. Forcing TMPDIR=/tmp makes emu-control
+    //      and every discrete `pebble` command agree on /tmp. Harmless on Linux
+    //      (gettempdir is already /tmp there).
+    //   2. qemu discovery: pebble-tool defaults to a bare `qemu-pebble` PATH lookup,
+    //      but on macOS the binary lives only inside the SDK toolchain dir. Point
+    //      PEBBLE_QEMU_PATH at the resolved binary so boot finds it.
+    let macShim: NativeDriverDeps["macShim"];
+    if (process.platform === "darwin") {
+      process.env.TMPDIR = "/tmp";
+      // Resolve the REAL SDK qemu once: it is both the raw fallback (below) and the
+      // wrapper's exec target. Honour an explicit user PEBBLE_QEMU_PATH if set.
+      const realQemu = process.env.PEBBLE_QEMU_PATH ?? (await resolveSdkQemuPath()) ?? "";
+      if (realQemu) {
+        // Fallback until ensureTimeShim() flips this to the wrapper on shim-ready.
+        process.env.PEBBLE_QEMU_PATH = realQemu;
+        const { wrapper, ctl } = macDeployPaths(macStudioDir());
+        macShim = { realQemu, wrapper, ctl };
+        // Deploy sitecustomize.py + put its isolated dir on PYTHONPATH so pebble-tool
+        // and its pypkjs child can serve fake time (defeats the SetUTC clobber).
+        // PYTHONPATH is harmless with no active fake-time file; PEBBLE_FAKETIME_FILE
+        // is set only when the dylib is ready (ensureTimeShim), so a shim-less mac
+        // stays real-time. We deliberately do NOT set PEBBLE_SIM_ENV_FILE (keeps
+        // sitecustomize's sim block dormant — no pebble_studio_sim in the dir).
+        const sc = await ensureMacSitecustomize();
+        if (sc) process.env.PYTHONPATH = sc.env.PYTHONPATH;
+      }
+    }
+    driver = new NativeDriver({ run: spawnRunner, macShim }); // native default boot/stop
   } else {
     driver = new WslDriver({
       run: spawnRunner,

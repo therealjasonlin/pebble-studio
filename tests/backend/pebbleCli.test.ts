@@ -87,11 +87,14 @@ describe("setTzOffsetCmd", () => {
     expect(oneLiner).toContain("-240");
     expect(oneLiner).toContain("America/New_York");
   });
-  it("hard-bounds the helper with `timeout` so a contended pypkjs push can't hang/pile up", () => {
+  it("hard-bounds the helper with `timeout`/`gtimeout` when present (SIGTERM 6s, SIGKILL 8s)", () => {
     const oneLiner = setTzOffsetCmd(-240, "America/New_York").args[1];
-    // SIGTERM at 6s, SIGKILL at 8s — a wedged bridge push always unwinds.
-    expect(oneLiner).toMatch(/timeout -k 2 6 \$PYBIN/);
-    expect(oneLiner).not.toContain("'"); // timeout adds no quotes
+    // Resolve either coreutils name (gtimeout on macOS/Homebrew) and apply it only
+    // when found — `${T:+$T -k 2 6}` expands to nothing on a stock macOS, so the
+    // helper still runs (unbounded) rather than dying on a missing `timeout`.
+    expect(oneLiner).toContain("command -v timeout || command -v gtimeout");
+    expect(oneLiner).toContain("${T:+$T -k 2 6} $PYBIN");
+    expect(oneLiner).not.toContain("'"); // quote-free rule (v0.0.12)
     expect(oneLiner).not.toContain('"');
   });
   it("falls back to a synthesized UTC±h name for non-shell-safe/absent zones", () => {

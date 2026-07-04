@@ -199,6 +199,35 @@ describe("bootEmulator WSL shell construction", () => {
     expect(call!.args[0]).toBe("-lc");
   });
 
+  it("makeNativeBootDeps bootControl detaches with nohup, dropping setsid on macOS", async () => {
+    const deps = makeNativeBootDeps();
+    await deps.bootControl("basalt");
+    const call = calls.find(
+      (c) => c.cmd === "bash" && String(c.args[1]).includes("emu-control"),
+    );
+    expect(call).toBeDefined();
+    const wrapped = call!.args[1];
+    expect(wrapped).toContain("nohup bash -lc");
+    expect(wrapped).toContain("pebble emu-control --emulator basalt --vnc");
+    // macOS has no `setsid`; Node's detached spawn already makes the outer bash a
+    // session leader. Elsewhere (Linux/WSL) the explicit setsid is kept.
+    if (process.platform === "darwin") {
+      expect(wrapped).not.toContain("setsid");
+    } else {
+      expect(wrapped).toContain("setsid nohup");
+    }
+  });
+
+  it("makeNativeBootDeps ensureKeymap is a no-op on macOS (SDK ships en-us)", async () => {
+    const deps = makeNativeBootDeps();
+    await deps.ensureKeymap();
+    if (process.platform === "darwin") {
+      expect(calls.length).toBe(0);
+    } else {
+      expect(calls.some((c) => c.cmd === "bash")).toBe(true);
+    }
+  });
+
   it("bootEmulator runs the lifecycle in order using injected fake deps (no spawning)", async () => {
     const order: string[] = [];
     const endpoint = await bootEmulator("basalt", {

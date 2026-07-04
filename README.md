@@ -16,6 +16,8 @@ A modern desktop GUI for the [`qemu-pebble`](https://github.com/pebble/qemu) emu
 
 The app is built and packaged for **Windows** as a self-contained bundle (it ships its own emulator, Python runtime, and SDK as release assets, so no separate install is needed). The codebase is cross-platform Electron/TypeScript; other platforms can be built from source but are not currently packaged.
 
+**macOS** runs from source against a locally installed [`pebble-tool`](https://github.com/coredevices/pebble-tool) (e.g. `uv tool install pebble-tool`) with an SDK installed (`pebble sdk install latest`). The app auto-detects the native toolchain — its `qemu-pebble` under `~/Library/Application Support/Pebble SDK` — and drives the emulator directly; no WSL or bundled runtime is used. Custom date / freeze / time-rate work on macOS via a `DYLD_INSERT_LIBRARIES` time-shim — the macOS analog of the Linux `LD_PRELOAD` shim, a small dylib compiled from source (universal arm64+x86_64, ad-hoc signed) during `npm run build` and force-loaded into `qemu-pebble`. This requires the Xcode Command Line Tools (`xcode-select --install`); without them the shim can't be built and time falls back to the host clock with timezone offset.
+
 ## Install
 
 Download the latest packaged build from the [Releases](../../releases) page, unzip it, and run `Pebble Studio.exe`. No installer or admin rights required.

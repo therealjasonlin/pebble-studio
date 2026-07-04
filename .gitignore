@@ -20,3 +20,9 @@ docs/
 vendor/qemu-pebble-win/
 vendor/pebble-py/
 vendor/pebble-sdk/
+
+# macOS time-shim: the .c sources ARE committed; the compiled artifacts are
+# generated at build time (see scripts/build-timeshim-mac.mjs) and must NOT be
+# committed. Ad-hoc-signed Mach-O, host-arch specific.
+vendor/timeshim-mac/timeshim.dylib
+vendor/timeshim-mac/probe

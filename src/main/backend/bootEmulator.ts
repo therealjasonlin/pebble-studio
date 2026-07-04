@@ -161,9 +161,13 @@ export function makeNativeShell(): Shell {
   return {
     run: (cmdline) => execArgv("bash", ["-lc", cmdline]),
     async spawnDetached(cmdline) {
-      // Wrap in setsid+nohup so the process survives this bash exiting, and
-      // detach the Node child so our event loop isn't held open by it.
-      const wrapped = `setsid nohup bash -lc ${shQuote(cmdline)} >${EMU_LOG_PATH} 2>&1 &`;
+      // Wrap in nohup so the process survives this bash exiting, and detach the
+      // Node child so our event loop isn't held open by it. `detached: true`
+      // already makes the outer bash a session leader on POSIX (Node calls
+      // setsid for us), so an explicit `setsid` is redundant on Linux and simply
+      // ABSENT on macOS — prepend it only where it exists.
+      const detach = process.platform === "darwin" ? "nohup" : "setsid nohup";
+      const wrapped = `${detach} bash -lc ${shQuote(cmdline)} >${EMU_LOG_PATH} 2>&1 &`;
       const child = spawn("bash", ["-lc", wrapped], { detached: true, stdio: "ignore", env: process.env, windowsHide: true });
       child.unref();
       child.on("error", () => { /* readiness is checked via ports */ });
@@ -327,6 +331,11 @@ export function extractBootErrors(log: string, maxLines = 4): string {
 
 function makeEnsureKeymap(shell: Shell) {
   return async function ensureKeymap(): Promise<void> {
+    // macOS: the modern pebble-tool SDK already ships the en-us keymap in its
+    // pc-bios dir, and its SDK lives under a different (space-containing) path
+    // than SDK_ROOT. The Linux/WSL pre-seed below would only create junk dirs
+    // under a non-existent classic-SDK path, so skip it entirely on darwin.
+    if (process.platform === "darwin") return;
     // -p / -n keep this idempotent. Done in one shell so $HOME expands in-distro.
     await shell.run(
       `mkdir -p "${PC_BIOS}/keymaps" && ` +

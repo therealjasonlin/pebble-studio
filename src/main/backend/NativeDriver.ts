@@ -4,6 +4,7 @@ import type { PebbleCommand } from "./pebbleCli.js";
 import * as cli from "./pebbleCli.js";
 import { bootEmulator, stopEmulator, type BootToken, type OnStep } from "./bootEmulator.js";
 import { setFakeTimeCmd, ensureTimeShim } from "./timeShim.js";
+import { ensureMacTimeShim } from "./macTimeShim.js";
 import { spawnLineStream } from "./lineStream.js";
 
 /** Default stop uses the native (current-host) teardown. */
@@ -21,6 +22,17 @@ export interface NativeDriverDeps {
   /** Streaming spawn for `streamLogs` (injectable for tests). Defaults to the
    * real node spawn. */
   logSpawn?: typeof spawnLineStream;
+  /** macOS DYLD time-shim wiring (set by createDriver on darwin). When present,
+   * ensureTimeShim() uses the mac shim instead of the Linux LD_PRELOAD path and,
+   * on success, routes PEBBLE_QEMU_PATH through the wrapper + activates the shared
+   * fake-time control file for the pebble-tool python. `ensure` is injectable for
+   * tests; it defaults to ensureMacTimeShim. */
+  macShim?: {
+    realQemu: string;
+    wrapper: string;
+    ctl: string;
+    ensure?: (realQemu: string) => Promise<boolean>;
+  };
 }
 
 export class NativeDriver implements BackendDriver {
@@ -79,6 +91,23 @@ export class NativeDriver implements BackendDriver {
   }
 
   async ensureTimeShim(): Promise<boolean> {
+    const mac = this.deps.macShim;
+    if (mac) {
+      const ensure = mac.ensure ?? ((q: string) => ensureMacTimeShim(q));
+      let ok = false;
+      try { ok = await ensure(mac.realQemu); } catch { ok = false; }
+      // Only when the shim is ready do we route qemu through the DYLD wrapper AND
+      // point the pebble-tool python (sitecustomize) at the shared control file.
+      // A failed/absent shim leaves the raw qemu + no fake-time file → real time
+      // everywhere (today's macOS behavior), avoiding the SetUTC-reversion bug.
+      if (ok) {
+        process.env.PEBBLE_QEMU_PATH = mac.wrapper;
+        process.env.PEBBLE_FAKETIME_FILE = mac.ctl;
+      } else {
+        process.env.PEBBLE_QEMU_PATH = mac.realQemu;
+      }
+      return ok;
+    }
     return ensureTimeShim((cmdline) => this.deps.run("bash", ["-lc", cmdline]));
   }
 

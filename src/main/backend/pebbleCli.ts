@@ -7,6 +7,15 @@ export interface PebbleCommand {
   env?: Record<string, string>;
 }
 
+/**
+ * Quote-free shell snippet applying `timeout -k 2 6` (SIGTERM at 6 s, SIGKILL at
+ * 8 s) ONLY when a `timeout`/`gtimeout` binary was resolved into `$T`; otherwise
+ * it expands to nothing and the helper runs unbounded. Callers must set
+ * `T=$(command -v timeout || command -v gtimeout)` earlier in the SAME one-liner.
+ * Stays quote-free so it survives the Windows→wsl.exe→bash double-hop.
+ */
+const TIMEOUT_PREFIX = "${T:+$T -k 2 6}";
+
 let activePlatform: PlatformId = "basalt";
 export function setActivePlatform(id: PlatformId): void { activePlatform = id; }
 export function getActivePlatform(): PlatformId { return activePlatform; }
@@ -112,14 +121,20 @@ export function setTzOffsetCmd(offsetMin: number, tzName?: string): PebbleComman
   // single-client pypkjs bridge, which when contended/dead would otherwise hang
   // FOREVER (the helper has no internal timeout). Fire-and-forget callers (reassert)
   // then pile up dozens of stuck connections, starving/destabilising pypkjs — a
-  // confirmed live failure (15+ hung `pb-set-tz.py` chains). `timeout` is coreutils
-  // (quote-free); SIGTERM at 6 s, SIGKILL at 8 s, so a wedged push always unwinds.
+  // confirmed live failure (15+ hung `pb-set-tz.py` chains). SIGTERM at 6 s,
+  // SIGKILL at 8 s, so a wedged push always unwinds.
+  //
+  // `timeout` is GNU coreutils — always present on Linux/WSL, but NOT on a stock
+  // macOS (it ships as `gtimeout` via Homebrew, if at all). Resolve either name and
+  // apply it only when found; otherwise run the helper unbounded. `${T:+…}` keeps
+  // this quote-free (WSL double-hop safe — see the not-toContain(') test).
   const oneLiner =
     `mkdir -p $HOME/.pebble-studio; ` +
     `H=$HOME/.pebble-studio/pb-set-tz.py; ` +
     `echo ${SET_TZ_HELPER_B64} | base64 -d > $H; ` +
     `PYBIN=$(head -1 $(command -v pebble) | cut -c3-); ` +
-    `timeout -k 2 6 $PYBIN $H ${off} ${name}`;
+    `T=$(command -v timeout || command -v gtimeout); ` +
+    `${TIMEOUT_PREFIX} $PYBIN $H ${off} ${name}`;
   return { cmd: "bash", args: ["-lc", oneLiner] };
 }
 
@@ -165,7 +180,8 @@ export function activateHealthCmd(): PebbleCommand {
     `H=$HOME/.pebble-studio/pb-activate-health.py; ` +
     `echo ${ACTIVATE_HEALTH_HELPER_B64} | base64 -d > $H; ` +
     `PYBIN=$(head -1 $(command -v pebble) | cut -c3-); ` +
-    `timeout -k 2 6 $PYBIN $H`;
+    `T=$(command -v timeout || command -v gtimeout); ` +
+    `${TIMEOUT_PREFIX} $PYBIN $H`;
   return { cmd: "bash", args: ["-lc", oneLiner] };
 }
 
