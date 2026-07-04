@@ -11,6 +11,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.renderer.json",
     "build:main": "esbuild src/main/index.ts --bundle --platform=node --format=cjs --target=node20 --external:electron --outfile=dist/main/index.cjs && esbuild src/main/preload.cts --bundle --platform=node --format=cjs --target=node20 --external:electron --outfile=dist/main/preload.cjs && node -e \"require('fs').copyFileSync('src/main/splash.html','dist/main/splash.html')\"",
     "build:renderer": "vite build",
+    "postinstall": "node scripts/repair-electron.mjs",
     "build": "npm run build:main && npm run build:renderer",
     "dev": "vite",
     "start": "electron .",
