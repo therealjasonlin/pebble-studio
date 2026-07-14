@@ -1,6 +1,7 @@
 import { access } from "node:fs/promises";
 import { closeSync, openSync } from "node:fs";
 import { spawn } from "node:child_process";
+import { tmpdir } from "node:os";
 import { spawnRunner } from "./spawnRunner.js";
 import { selectDriverKind, type ProbeResult, type DriverKind } from "./driverFactory.js";
 import { NativeDriver } from "./NativeDriver.js";
@@ -11,7 +12,7 @@ import { makeWinBootDeps } from "./winBootDeps.js";
 import { defaultCtx, pebbleCmd, bundledToolsPresent, pebblePyExe, qemuExe, pebbleDataDir } from "./winRuntime.js";
 import { winFakeTimeCtlPath, winQemuFakeTimeLogPath } from "./winTimeShim.js";
 import { simEnvPath } from "./simEnv.js";
-import { winHostPaths } from "./hostPaths.js";
+import { EMU_INFO_PATH, winHostPaths } from "./hostPaths.js";
 import { deployWinHelpers } from "./winHelpers.js";
 import { WinInputChannel, readPypkjsPort } from "./winInputChannel.js";
 import { ensureWinSdkProvisioned } from "./winSdkProvision.js";
@@ -60,6 +61,27 @@ async function qemuAvailable(): Promise<boolean> {
     return true;
   } catch {
     /* fall through */
+  }
+
+  // Probe the Pebble SDK location used by Pebble Tool on macOS.
+  if (process.platform === "darwin") {
+    const macSdkQemu = pathJoin(
+      home,
+      "Library",
+      "Application Support",
+      "Pebble SDK",
+      "SDKs",
+      "current",
+      "toolchain",
+      "bin",
+      "qemu-pebble",
+    );
+    try {
+      await access(macSdkQemu);
+      return true;
+    } catch {
+      /* fall through */
+    }
   }
 
   // Probe the Windows bundled SDK location (win32 only).
@@ -254,7 +276,22 @@ export async function createDriver(override?: DriverKind): Promise<{ driver: Bac
       },
     });
   } else if (kind === "native") {
-    driver = new NativeDriver({ run: spawnRunner }); // native default boot/stop
+    const whichResult = await spawnRunner("which", ["pebble"]);
+    const pebblePath = whichResult.stdout.trim();
+    const launcher = await fsReadFile(pebblePath, "utf8");
+    const pyExe = launcher.split(/\r?\n/, 1)[0].replace(/^#!/, "").trim();
+
+    const { inputHelperPath } = deployWinHelpers(
+      pathJoin(tmpdir(), "pebble-studio-helpers"),
+    );
+    const inputChannel = new WinInputChannel({
+      helper: { pythonExe: pyExe, helperPath: inputHelperPath },
+      readPort: () => readPypkjsPort(EMU_INFO_PATH),
+    });
+    driver = new NativeDriver({
+      run: spawnRunner,
+      inputChannel,
+    });
   } else {
     driver = new WslDriver({
       run: spawnRunner,

@@ -1,7 +1,8 @@
 import { app, BrowserWindow, ipcMain, Menu, dialog, session } from "electron";
 import { writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
+import { homedir } from "node:os";
 import { registerIpc } from "./ipc.js";
 import { createQuitHandler } from "./quitHandler.js";
 import { buildMenuTemplate } from "./menu.js";
@@ -10,6 +11,21 @@ import { buildMenuTemplate } from "./menu.js";
 // `__dirname` is a native global. The ambient declare keeps it typechecking
 // under the ESM (nodenext) tsconfig used for `npm run typecheck`.
 declare const __dirname: string;
+
+// Finder and Spotlight launch macOS apps with a minimal PATH that usually
+// excludes user-installed tools such as uv's ~/.local/bin/pebble.
+if (process.platform === "darwin") {
+  const extraPaths = [
+    join(homedir(), ".local", "bin"),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+  ];
+  const currentPaths = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
+  process.env.PATH = [
+    ...extraPaths,
+    ...currentPaths.filter((entry) => !extraPaths.includes(entry)),
+  ].join(delimiter);
+}
 
 // The chromium OS sandbox cannot initialize under WSL/WSLg, so the app won't
 // start there without this switch. It is PROCESS-WIDE — it also strips the

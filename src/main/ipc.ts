@@ -25,7 +25,7 @@ import { makeLanguageController, type LanguageController, type PackRef, type Sel
 import { makeLangHandlers, kickLangReassert } from "./langIpc.js";
 import { ensureWinSdkProvisioned } from "./backend/winSdkProvision.js";
 import { currentSdkInfo, installCustomSdk, resetToBundledSdk, applyFullLauncherToActiveSdk, revertFullLauncherOnActiveSdk } from "./backend/sdkController.js";
-import { readSimEnv, writeSimEnv } from "./backend/simEnv.js";
+import { readSimEnv, writeSimEnv, simEnvPath } from "./backend/simEnv.js";
 import { clearWeatherCacheArgv, refreshWeatherAfterSimChange } from "./backend/weatherCacheRefresh.js";
 import { spawnRunner } from "./backend/spawnRunner.js";
 import { getPlatform } from "./backend/emulatorRegistry.js";
@@ -509,6 +509,26 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null = () => nu
   });
 
   ipcMain.handle("backend:init", async (_e, opts?: { prebootBoard?: PlatformId }) => {
+    process.env.PEBBLE_SIM_ENV_FILE = simEnvPath(app.getPath("userData"));
+
+    if (process.platform !== "win32") {
+      const simModulePath = app.isPackaged
+        ? path.join(
+            process.resourcesPath,
+            "app.asar.unpacked",
+            "vendor",
+            "pebble-sim-site",
+          )
+        : path.join(
+            app.getAppPath(),
+            "vendor",
+            "pebble-sim-site",
+          );
+      process.env.PYTHONPATH = process.env.PYTHONPATH
+        ? `${simModulePath}:${process.env.PYTHONPATH}`
+        : simModulePath;
+    }
+
     const { driver: d, kind } = await createDriver();
     driver = d;
     driverKind = kind;
@@ -746,18 +766,19 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null = () => nu
     try {
       // Windows-native only (the bundled python hosts the helper); skip the
       // win32-only defaultCtx() entirely on other stacks where it would throw.
-      const isNative = driverKind === "windows-native";
-      const ctx = isNative ? await defaultCtx() : null;
+      const isWindowsNative = driverKind === "windows-native";
+      const supportsRefresh = driverKind === "native" || isWindowsNative;
+      const ctx = isWindowsNative ? await defaultCtx() : null;
       const { rebooted } = await refreshWeatherAfterSimChange({
-        enabled: isNative,
+        enabled: supportsRefresh,
         isLive: async () =>
           currentPlatform != null && readPypkjsPort(winHostPaths().emuInfo) != null,
-        clearCache: async () => {
+        clearCache: isWindowsNative ? async () => {
           const { cmd, args, env } = clearWeatherCacheArgv(ctx!);
           const r = await spawnRunner(cmd, args, env);
           if (r.code !== 0) console.error(`[sim] clearcache exited ${r.code}: ${r.stderr.trim()}`);
           else if (r.stdout.trim()) console.log(`[sim] ${r.stdout.trim()}`);
-        },
+        } : undefined,
         stop: async () => {
           // Mirror emu:stop: quiesce the keepalive/time/bridge timers so they
           // don't poll the dead emulator during the reboot window.
@@ -796,7 +817,38 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null = () => nu
   });
   ipcMain.handle("emu:install", async (e, pbwPath: string) => {
     assertMainSender(e);
-    await withAppLogPaused(() => installWithBridgeRetry(() => requireDriver().install(pbwPath)));
+
+    const platform = currentPlatform;
+    if (!platform) throw new Error("No emulator platform is currently selected.");
+
+    const recoverBridge = async (): Promise<void> => {
+      console.warn("[install] bridge stopped responding — restarting emulator");
+      emuLive = false;
+      backlight.stop();
+      time.stop();
+      bridgeMonitor.stop();
+
+      try {
+        await requireDriver().stop();
+      } catch {
+        // The bridge may already be partially stopped.
+      }
+
+      const token: BootToken = { cancelled: false };
+      currentBootToken = token;
+      await requireDriver().start(platform, token);
+
+      if (token.cancelled) throw new Error("Bridge recovery boot was cancelled.");
+
+      void time.applyAll();
+      bridgeMonitor.start(platform);
+      emuLive = true;
+    };
+
+    await withAppLogPaused(() =>
+      installWithBridgeRetry(() => requireDriver().install(pbwPath), { recoverBridge }),
+    );
+
     loaded.add(pbwPath);
     reassertTime();
   });

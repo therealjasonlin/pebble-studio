@@ -238,9 +238,11 @@ export function makeNativeShell(): Shell {
   return {
     run: (cmdline) => execArgv("bash", ["-lc", cmdline]),
     async spawnDetached(cmdline) {
-      // Wrap in setsid+nohup so the process survives this bash exiting, and
-      // detach the Node child so our event loop isn't held open by it.
-      const wrapped = `setsid nohup bash -lc ${shQuote(cmdline)} >${EMU_LOG_PATH} 2>&1 &`;
+      // Linux provides setsid; macOS does not. The Node child is already
+      // detached, so nohup is sufficient on macOS to keep the emulator alive
+      // after the launcher shell exits.
+      const detachPrefix = process.platform === "darwin" ? "nohup" : "setsid nohup";
+      const wrapped = `${detachPrefix} bash -lc ${shQuote(cmdline)} >${EMU_LOG_PATH} 2>&1 &`;
       const child = spawn("bash", ["-lc", wrapped], { detached: true, stdio: "ignore", env: process.env, windowsHide: true });
       child.unref();
       child.on("error", () => { /* readiness is checked via ports */ });

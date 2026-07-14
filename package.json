@@ -17,6 +17,7 @@
     "start": "electron .",
     "dist": "npm run build && electron-builder --win && node scripts/set-exe-icon.mjs",
     "gen:icon": "node scripts/gen-icon.mjs",
+    "dist:mac": "npm run build && electron-builder --mac --arm64"
     "fetch:arm64-qemu": "node scripts/fetch-arm64-qemu.mjs"
   },
   "devDependencies": {
@@ -35,5 +36,25 @@
     "@novnc/novnc": "^1.5.0",
     "gif.js": "^0.2.0",
     "pngjs": "^7.0.0"
+  },
+  "build": {
+    "appId": "com.pebblestudio.app",
+    "productName": "Pebble Studio",
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "vendor/pebble-sim-site/**/*"
+    ],
+    "mac": {
+      "icon": "build/icon.png",
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg",
+        "dir"
+      ]
+    },
+    "asarUnpack": [
+      "vendor/pebble-sim-site/**/*"
+    ]
   }
 }

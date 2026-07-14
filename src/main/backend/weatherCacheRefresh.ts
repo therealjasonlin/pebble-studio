@@ -42,7 +42,7 @@ export interface WeatherRefreshDeps {
   /** Delete throttle stamps from on-disk localStorage. Safe ONLY when the
    * emulator is stopped — a live pypkjs holds the store open and caches its
    * index in memory, so external edits wouldn't take effect anyway. */
-  clearCache: () => Promise<void>;
+  clearCache?: () => Promise<void>;
   /** Stop the running emulator (+ pause any health monitor). */
   stop: () => Promise<void>;
   /** Boot the emulator again on the same platform (+ resume monitor/time). */
@@ -67,11 +67,11 @@ export async function refreshWeatherAfterSimChange(
 ): Promise<{ rebooted: boolean }> {
   if (!d.enabled) return { rebooted: false };
   if (!(await d.isLive())) {
-    await d.clearCache();
+    if (d.clearCache) await d.clearCache();
     return { rebooted: false };
   }
   await d.stop();
-  await d.clearCache();
+  if (d.clearCache) await d.clearCache();
   await d.start();
   await d.reinstall();
   return { rebooted: true };

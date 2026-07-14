@@ -14,6 +14,19 @@ describe("NativeDriver", () => {
     expect(calls[0].args).toContain("/apps/face.pbw");
   });
 
+  it("accepts an install that succeeded even if emulator relaunch reports failure", async () => {
+    const run = vi.fn(async () => ({
+      code: 1,
+      stdout: "Installing app...\nApp install succeeded.\n",
+      stderr: "Couldn't launch emulator",
+    }));
+
+    const d = new NativeDriver({ run });
+    d.setPlatform("gabbro");
+
+    await expect(d.install("/apps/face.pbw")).resolves.toBeUndefined();
+  });
+
   it("streamLogs attaches --vnc so it reuses the running VNC emulator (without --vnc the tool SIGKILLs the VNC qemu)", () => {
     const calls: { cmd: string; args: string[] }[] = [];
     const logSpawn = vi.fn((cmd: string, args: string[]) => { calls.push({ cmd, args }); return { kill: () => {} }; });
