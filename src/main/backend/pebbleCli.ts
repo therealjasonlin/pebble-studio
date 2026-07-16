@@ -1,3 +1,4 @@
+import { EMU_INFO_PATH } from "./hostPaths.js";
 import type { PlatformId, ButtonId, ButtonAction } from "../../shared/types.js";
 
 export interface PebbleCommand {
@@ -81,11 +82,12 @@ export function timeFormatCmd(hour24: boolean): PebbleCommand {
  * through the native runner OR the WSL runner (`wsl.exe -- bash -lc …`) unchanged.
  */
 // Helper source (pb-set-tz.py): connects to the running emulator's pypkjs websocket
-// (port from /tmp/pb-emulator.json) and sends SetUTC(now, utc_offset=argv[1],
-// tz_name=argv[2]). Base64 of the script (the base64 alphabet is shell-safe — no
+// (state-file path from argv[3], with /tmp/pb-emulator.json as a legacy fallback)
+// and sends SetUTC(now, utc_offset=argv[1], tz_name=argv[2]). Base64 of the script
+// (the base64 alphabet is shell-safe — no
 // quotes/spaces/metacharacters — so it can be echo'd UNQUOTED, see below).
 const SET_TZ_HELPER_B64 =
-  "aW1wb3J0IHN5cywganNvbiwgdGltZQpmcm9tIGxpYnBlYmJsZTIuY29tbXVuaWNhdGlvbiBpbXBvcnQgUGViYmxlQ29ubmVjdGlvbgpmcm9tIGxpYnBlYmJsZTIuY29tbXVuaWNhdGlvbi50cmFuc3BvcnRzLndlYnNvY2tldCBpbXBvcnQgV2Vic29ja2V0VHJhbnNwb3J0CmZyb20gbGlicGViYmxlMi5wcm90b2NvbC5zeXN0ZW0gaW1wb3J0IFRpbWVNZXNzYWdlLCBTZXRVVEMKb2Zmc2V0ID0gaW50KHN5cy5hcmd2WzFdKQpuYW1lID0gc3lzLmFyZ3ZbMl0gaWYgbGVuKHN5cy5hcmd2KSA+IDIgZWxzZSAoJ1VUQyUrZCcgJSAob2Zmc2V0IC8vIDYwKSkKaW5mbyA9IGpzb24ubG9hZChvcGVuKCcvdG1wL3BiLWVtdWxhdG9yLmpzb24nKSkKcG9ydCA9IE5vbmUKZm9yIHBsYXQsIHZlcnMgaW4gaW5mby5pdGVtcygpOgogICAgZm9yIHYsIGQgaW4gdmVycy5pdGVtcygpOgogICAgICAgIHAgPSAoZC5nZXQoJ3B5cGtqcycpIG9yIHt9KS5nZXQoJ3BvcnQnKQogICAgICAgIGlmIHA6IHBvcnQgPSBwCmlmIHBvcnQgaXMgTm9uZToKICAgIHN5cy5leGl0KCdubyBweXBranMgcG9ydCBpbiAvdG1wL3BiLWVtdWxhdG9yLmpzb24nKQpjID0gUGViYmxlQ29ubmVjdGlvbihXZWJzb2NrZXRUcmFuc3BvcnQoJ3dzOi8vbG9jYWxob3N0OiVkLycgJSBwb3J0KSkKYy5jb25uZWN0KCk7IGMucnVuX2FzeW5jKCkKdHMgPSBpbnQodGltZS50aW1lKCkpCmMuc2VuZF9wYWNrZXQoVGltZU1lc3NhZ2UobWVzc2FnZT1TZXRVVEModW5peF90aW1lPXRzLCB1dGNfb2Zmc2V0PW9mZnNldCwgdHpfbmFtZT1uYW1lKSkpCnRpbWUuc2xlZXAoMC40KQpwcmludCgnc2VudCBvZmZzZXQ9JWQgKCVzKSB2aWEgd3MgcG9ydCAlZCcgJSAob2Zmc2V0LCBuYW1lLCBwb3J0KSkK";
+  "aW1wb3J0IGpzb24KaW1wb3J0IHN5cwppbXBvcnQgdGltZQoKZnJvbSBsaWJwZWJibGUyLmNvbW11bmljYXRpb24gaW1wb3J0IFBlYmJsZUNvbm5lY3Rpb24KZnJvbSBsaWJwZWJibGUyLmNvbW11bmljYXRpb24udHJhbnNwb3J0cy53ZWJzb2NrZXQgaW1wb3J0IFdlYnNvY2tldFRyYW5zcG9ydApmcm9tIGxpYnBlYmJsZTIucHJvdG9jb2wuc3lzdGVtIGltcG9ydCBTZXRVVEMsIFRpbWVNZXNzYWdlCgpvZmZzZXQgPSBpbnQoc3lzLmFyZ3ZbMV0pCm5hbWUgPSBzeXMuYXJndlsyXSBpZiBsZW4oc3lzLmFyZ3YpID4gMiBlbHNlICgiVVRDJStkIiAlIChvZmZzZXQgLy8gNjApKQpzdGF0ZXBhdGggPSBzeXMuYXJndlszXSBpZiBsZW4oc3lzLmFyZ3YpID4gMyBlbHNlICIvdG1wL3BiLWVtdWxhdG9yLmpzb24iCgppbmZvID0ganNvbi5sb2FkKG9wZW4oc3RhdGVwYXRoKSkKcG9ydCA9IE5vbmUKCmZvciBfcGxhdGZvcm0sIHZlcnNpb25zIGluIGluZm8uaXRlbXMoKToKICAgIGZvciBfdmVyc2lvbiwgZGF0YSBpbiB2ZXJzaW9ucy5pdGVtcygpOgogICAgICAgIGNhbmRpZGF0ZSA9IChkYXRhLmdldCgicHlwa2pzIikgb3Ige30pLmdldCgicG9ydCIpCiAgICAgICAgaWYgY2FuZGlkYXRlOgogICAgICAgICAgICBwb3J0ID0gY2FuZGlkYXRlCgppZiBwb3J0IGlzIE5vbmU6CiAgICBzeXMuZXhpdCgibm8gcHlwa2pzIHBvcnQgaW4gJXMiICUgc3RhdGVwYXRoKQoKY29ubmVjdGlvbiA9IFBlYmJsZUNvbm5lY3Rpb24oCiAgICBXZWJzb2NrZXRUcmFuc3BvcnQoIndzOi8vbG9jYWxob3N0OiVkLyIgJSBwb3J0KQopCmNvbm5lY3Rpb24uY29ubmVjdCgpCmNvbm5lY3Rpb24ucnVuX2FzeW5jKCkKCnRpbWVzdGFtcCA9IGludCh0aW1lLnRpbWUoKSkKY29ubmVjdGlvbi5zZW5kX3BhY2tldCgKICAgIFRpbWVNZXNzYWdlKAogICAgICAgIG1lc3NhZ2U9U2V0VVRDKAogICAgICAgICAgICB1bml4X3RpbWU9dGltZXN0YW1wLAogICAgICAgICAgICB1dGNfb2Zmc2V0PW9mZnNldCwKICAgICAgICAgICAgdHpfbmFtZT1uYW1lLAogICAgICAgICkKICAgICkKKQoKdGltZS5zbGVlcCgwLjQpCnByaW50KAogICAgInNlbnQgb2Zmc2V0PSVkICglcykgdmlhIHdzIHBvcnQgJWQiCiAgICAlIChvZmZzZXQsIG5hbWUsIHBvcnQpCikK";
 
 /** A name is safe to pass UNQUOTED through the shell (IANA zones: letters, digits,
  * `/`, `_`, `-`, `+`). Anything else falls back to the synthesized UTC±h name. */
@@ -119,7 +121,7 @@ export function setTzOffsetCmd(offsetMin: number, tzName?: string): PebbleComman
     `H=$HOME/.pebble-studio/pb-set-tz.py; ` +
     `echo ${SET_TZ_HELPER_B64} | base64 -d > $H; ` +
     `PYBIN=$(head -1 $(command -v pebble) | cut -c3-); ` +
-    `timeout -k 2 6 $PYBIN $H ${off} ${name}`;
+    `timeout -k 2 6 $PYBIN $H ${off} ${name} ${EMU_INFO_PATH}`;
   return { cmd: "bash", args: ["-lc", oneLiner] };
 }
 
@@ -165,7 +167,7 @@ export function activateHealthCmd(): PebbleCommand {
     `H=$HOME/.pebble-studio/pb-activate-health.py; ` +
     `echo ${ACTIVATE_HEALTH_HELPER_B64} | base64 -d > $H; ` +
     `PYBIN=$(head -1 $(command -v pebble) | cut -c3-); ` +
-    `timeout -k 2 6 $PYBIN $H`;
+    `timeout -k 2 6 $PYBIN $H ${EMU_INFO_PATH}`;
   return { cmd: "bash", args: ["-lc", oneLiner] };
 }
 
