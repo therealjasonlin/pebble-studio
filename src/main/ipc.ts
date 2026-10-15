@@ -796,7 +796,33 @@ export function registerIpc(getMainWindow: () => BrowserWindow | null = () => nu
   });
   ipcMain.handle("emu:install", async (e, pbwPath: string) => {
     assertMainSender(e);
-    await withAppLogPaused(() => installWithBridgeRetry(() => requireDriver().install(pbwPath)));
+    // After a pypkjs/WebSocket timeout the bridge is wedged and plain retries keep
+    // failing: stop + reboot the emulator ONCE, then retry the install (see
+    // installRetry.ts). Only wired when a platform is selected; otherwise the
+    // install runs unchanged and surfaces its own error.
+    const platform = currentPlatform;
+    const recoverBridge = platform
+      ? async (): Promise<void> => {
+          console.warn("[install] bridge stopped responding - restarting emulator");
+          emuLive = false;
+          backlight.stop();
+          time.stop();
+          bridgeMonitor.stop();
+          try { await requireDriver().stop(); } catch { /* may already be stopped */ }
+
+          const token: BootToken = { cancelled: false };
+          currentBootToken = token;
+          await requireDriver().start(platform, token);
+          if (token.cancelled) throw new Error("Bridge recovery boot was cancelled.");
+
+          void time.applyAll();
+          bridgeMonitor.start(platform);
+          emuLive = true;
+        }
+      : undefined;
+    await withAppLogPaused(() =>
+      installWithBridgeRetry(() => requireDriver().install(pbwPath), { recoverBridge }),
+    );
     loaded.add(pbwPath);
     reassertTime();
   });

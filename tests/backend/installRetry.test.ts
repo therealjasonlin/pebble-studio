@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { installWithBridgeRetry, isBridgeBusyError } from "../../src/main/backend/installRetry.js";
+import {
+  installWithBridgeRetry,
+  isBridgeBusyError,
+  isBridgeDeadError,
+} from "../../src/main/backend/installRetry.js";
 
 const BUSY = "pebble install --emulator basalt --vnc x.pbw failed (code 1): unable to add pbw when emulator already running";
 const noSleep = async (): Promise<void> => {};
@@ -15,11 +19,47 @@ describe("isBridgeBusyError", () => {
   });
 });
 
+describe("isBridgeDeadError", () => {
+  it("matches bridge disconnect and timeout failures", () => {
+    expect(isBridgeDeadError(new Error("Timed out waiting for install confirmation."))).toBe(true);
+    expect(isBridgeDeadError(new Error("WebSocketConnectionClosedException"))).toBe(true);
+    expect(isBridgeDeadError(new Error("Connection to remote host was lost."))).toBe(true);
+    expect(isBridgeDeadError(new Error("libpebble2.exceptions.TimeoutError"))).toBe(true);
+    expect(isBridgeDeadError(new Error("Couldn't launch emulator"))).toBe(true);
+  });
+
+  it("does not match unrelated failures", () => {
+    expect(isBridgeDeadError(new Error("pebble install failed: corrupt pbw"))).toBe(false);
+    expect(isBridgeDeadError(new Error("ENOENT"))).toBe(false);
+  });
+});
+
 describe("installWithBridgeRetry", () => {
   it("calls install once and returns when it succeeds first try", async () => {
     let n = 0;
     await installWithBridgeRetry(async () => { n++; }, { sleep: noSleep });
     expect(n).toBe(1);
+  });
+    it("recovers once from a dead bridge and retries the install", async () => {
+    let installs = 0;
+    let recoveries = 0;
+
+    await installWithBridgeRetry(async () => {
+      installs++;
+
+      if (installs === 1) {
+        throw new Error("Timed out waiting for install confirmation.");
+      }
+    }, {
+      attempts: 3,
+      sleep: noSleep,
+      recoverBridge: async () => {
+        recoveries++;
+      },
+    });
+
+    expect(installs).toBe(2);
+    expect(recoveries).toBe(1);
   });
 
   it("retries on the cap-reject and succeeds once the slot frees", async () => {

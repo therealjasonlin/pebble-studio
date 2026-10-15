@@ -45,7 +45,27 @@ export class NativeDriver implements BackendDriver {
   }
 
   async install(pbwPath: string): Promise<void> {
-    await this.exec(cli.installCmd(pbwPath));
+    const command = cli.installCmd(pbwPath);
+    const args = withVnc(command.args);
+    const result = await this.deps.run(command.cmd, args, command.env);
+
+    // pebble-tool installs the pbw over the bridge, THEN tries to (re)launch the
+    // emulator; if only that last step fails the app is already installed.
+    const output = `${result.stdout}\n${result.stderr}`;
+    if (
+      result.code !== 0 &&
+      output.includes("App install succeeded.") &&
+      output.includes("Couldn't launch emulator")
+    ) {
+      console.warn("[install] app installed successfully despite emulator relaunch failure");
+      return;
+    }
+
+    if (result.code !== 0) {
+      throw new Error(
+        `pebble ${args.join(" ")} failed (code ${result.code}): ${result.stderr || result.stdout}`,
+      );
+    }
   }
 
   async button(id: ButtonId, action: ButtonAction): Promise<void> {
