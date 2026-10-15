@@ -6,7 +6,7 @@ describe("CHANGELOG", () => {
     // Versioning: the 2.x line is the native-Windows track (no WSL); the 1.x line
     // is the WSL-connected track. 2.0.1 is the first native release and leads.
     expect(CHANGELOG.length).toBeGreaterThan(0);
-    expect(CHANGELOG[0].version).toBe("3.0.14");
+    expect(CHANGELOG[0].version).toBe("3.0.15");
   });
   it("every entry has a version, a date, and at least one change", () => {
     for (const e of CHANGELOG) {

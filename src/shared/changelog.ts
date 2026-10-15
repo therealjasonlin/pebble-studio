@@ -14,6 +14,14 @@ export const CHANGELOG: ChangelogEntry[] = [
   // The 2.x line is the native-Windows track (no WSL); the 1.x line is the
   // WSL-connected track. 2.0.1 is the first native release. 3.0.0 is the first
   // public open-source release. (3.0.6 was never released.)
+  { version: "3.0.15", date: "2026-10-15", changes: [
+    "Fixed weather not loading in watchfaces. Pebble Studio's simulated-weather helper started up too early and broke every real internet request a watchface's phone-side JavaScript made, so sources like Open-Meteo and MET Norway silently never answered. Real weather requests work again whether or not simulated weather is on.",
+    "MET Norway weather now works: requests are sent with a proper app identifier instead of the default one that MET Norway blocks.",
+    "Simulated OpenWeather data now looks like the real API: it includes the status code, condition name and icon, honours metric/imperial units, and also answers One Call and 5-day forecast requests. Other OpenWeather requests (like city lookup) go to the real service.",
+    "Taking a screenshot or recording a GIF no longer changes what's on the watch. The capture backlight used to be woken with a Back button press, which could navigate out of the app you were capturing; it now uses a wrist-flick instead. (Thanks @jasonmarquette, PR #16.)",
+    "If installing an app fails because the emulator's phone bridge dropped or timed out, Pebble Studio now restarts the emulator once and retries the install automatically. (Thanks @jasonmarquette, PR #14.)",
+    "Groundwork for macOS: the emulator's temporary files are found in the right place on macOS. (Thanks @jasonmarquette, PR #12.)",
+  ] },
   { version: "3.0.14", date: "2026-07-12", changes: [
     "Fixed watchfaces looking off-center on Pebble Time 2. The v3.0.13 touch-alignment change had widened the watch's on-screen area to include a hidden padding strip, which pushed the watchface off to one side of the bezel; the screen is back to its correct size, so watchfaces are centered again.",
     "Reworked the touch-alignment fix so it no longer moves the picture. Taps on Pebble Time 2 and Pebble Round 2 are now corrected purely in how the click is translated to the watch — the watchface stays centered — so vertical taps land where you tap without the side effect that shifted the display in v3.0.13.",
