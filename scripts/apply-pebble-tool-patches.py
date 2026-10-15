@@ -610,6 +610,22 @@ if _ctl:
     _time.time = _fake_time
     _time.localtime = _fake_localtime
     _time.gmtime = _fake_gmtime
+
+
+# --- Pebble Studio simulated location & weather ---------------------------------
+# Independent of the fake-clock block above. When PEBBLE_SIM_ENV_FILE is set, install
+# the requests/pygeoip patches so weather watchfaces resolve a fixed location and get
+# synthetic weather offline. Failure here must never break the interpreter.
+_sim_file = os.environ.get("PEBBLE_SIM_ENV_FILE")
+if _sim_file:
+    try:
+        import pebble_studio_sim
+        # Deferred: must NOT import requests/ssl here (before pypkjs's gevent
+        # monkey-patch) or every real HTTPS XHR fails with RecursionError.
+        pebble_studio_sim.install_deferred(_sim_file)
+    except Exception as _sim_err:  # pragma: no cover - defensive
+        import sys as _sys
+        _sys.stderr.write("pebble_studio_sim install failed: %r\\n" % (_sim_err,))
 '''
 
 

@@ -123,4 +123,67 @@ describe.skipIf(!hasPy)("bundled python: simulated weather hook", () => {
     expect(r.out).toMatch(/UA PebbleStudio\//);
     expect(r.out).toContain("UA2 MyFace/1.0");
   });
+
+  describe("OpenWeatherMap endpoint shapes", () => {
+    const probe = (path: string, expr: string) =>
+      runPy(
+        [
+          "import pypkjs.javascript.xhr",
+          "import requests, json",
+          "import pebble_studio_sim as m",
+          "def fake(self, req, **kw):",
+          "    raise requests.exceptions.ConnectionError('REAL_NETWORK')",
+          "m._ORIG_SEND = fake",
+          "s = requests.Session()",
+          "try:",
+          `    j = s.send(s.prepare_request(requests.Request('GET', 'https://api.openweathermap.org${path}'))).json()`,
+          `    print('R', ${expr})`,
+          "except requests.exceptions.ConnectionError as e:",
+          "    print('R', e)",
+        ].join("\n"),
+        ENABLED,
+      );
+
+    it("/data/2.5/weather has cod 200 and filled weather[0]", () => {
+      const r = probe(
+        "/data/2.5/weather?lat=1&lon=2",
+        "j['cod'], j['weather'][0]['id'], j['weather'][0]['main'], j['weather'][0]['description'], j['weather'][0]['icon']",
+      );
+      expect(r.out).toContain("R 200 501 Rain moderate rain 10d");
+    });
+
+    it("/data/2.5/weather honours units", () => {
+      const k = probe("/data/2.5/weather", "round(j['main']['temp'], 1)");
+      expect(k.out).toContain("R 283.1");
+      const m = probe("/data/2.5/weather?units=metric", "round(j['main']['temp'], 1)");
+      expect(m.out).toContain("R 10");
+      const i = probe("/data/2.5/weather?units=imperial", "round(j['main']['temp'], 1)");
+      expect(i.out).toContain("R 50");
+    });
+
+    for (const path of ["/data/3.0/onecall", "/data/2.5/onecall"]) {
+      it(`${path} returns a onecall shape`, () => {
+        const r = probe(
+          `${path}?lat=1&lon=2&units=metric`,
+          "j['lat'], j['lon'], 'timezone' in j, 'timezone_offset' in j, j['current']['temp'], j['current']['weather'][0]['icon'], len(j['hourly']) > 1, len(j['daily']) > 1, sorted(j['daily'][0]['temp'])",
+        );
+        expect(r.out).toContain(
+          "R 10 20 True True 10 10d True True ['day', 'eve', 'max', 'min', 'morn', 'night']",
+        );
+      });
+    }
+
+    it("/data/2.5/forecast returns a forecast shape", () => {
+      const r = probe(
+        "/data/2.5/forecast?units=metric",
+        "j['cod'], j['cnt'] == len(j['list']), j['list'][0]['main']['temp'], j['list'][0]['weather'][0]['main'], 'dt_txt' in j['list'][0], j['city']['name']",
+      );
+      expect(r.out).toContain("R 200 True 10 Rain True X");
+    });
+
+    it("other OWM paths pass through to the real network", () => {
+      const r = probe("/geo/1.0/direct?q=London", "j");
+      expect(r.out).toContain("R REAL_NETWORK");
+    });
+  });
 });
