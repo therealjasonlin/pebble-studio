@@ -3,21 +3,23 @@ import { EMU_INFO_PATH, EMU_LOG_PATH, SDK_ROOT } from "../../src/main/backend/ho
 import { winHostPaths } from "../../src/main/backend/hostPaths.js";
 
 describe("hostPaths", () => {
-  it("exports POSIX-shaped, quote-free, space-free path strings", () => {
+  it("exports POSIX-shaped, quote-free, space-free shell path expressions", () => {
     for (const p of [EMU_INFO_PATH, EMU_LOG_PATH, SDK_ROOT]) {
       expect(typeof p).toBe("string");
       expect(p.length).toBeGreaterThan(0);
       // These literals are embedded UNQUOTED in shell command lines that may
       // cross the wsl.exe -- bash -lc boundary: no quotes, spaces, backslashes.
       expect(p).not.toMatch(/['"\s\\]/);
-      // POSIX-shaped: absolute or $HOME-anchored (expanded in-distro by bash).
-      expect(p.startsWith("/") || p.startsWith("$HOME/")).toBe(true);
+      // POSIX-shaped: absolute, variable-anchored, or shell parameter expansion.
+      expect(p.startsWith("/") || p.startsWith("$HOME/") || p.startsWith("${")).toBe(true);
     }
   });
 
-  it("matches the paths the emulator stack actually uses today", () => {
-    expect(EMU_INFO_PATH).toBe("/tmp/pb-emulator.json");
-    expect(EMU_LOG_PATH).toBe("/tmp/pebble-emu.log");
+  it("uses TMPDIR on macOS with a /tmp fallback for Linux and WSL", () => {
+    expect(EMU_INFO_PATH).toContain("$TMPDIR/pb-emulator.json");
+    expect(EMU_INFO_PATH).toContain("/tmp/pb-emulator.json");
+    expect(EMU_LOG_PATH).toContain("$TMPDIR/pebble-emu.log");
+    expect(EMU_LOG_PATH).toContain("/tmp/pebble-emu.log");
     expect(SDK_ROOT).toBe("$HOME/.local/share/pebble-sdk/SDKs/current");
   });
 });
