@@ -52,7 +52,15 @@ jobs:
           set -euo pipefail
           BUILD="$(cygpath "$RUNNER_TEMP")/qemu-build"
           mkdir -p "$BUILD" && cd "$BUILD"
-          git clone --depth 1 --branch pebble-10.1 https://github.com/coredevices/qemu
+          # Pinned to a known-good commit on coredevices/qemu `pebble-10.1`: our
+          # build/qemu-patches are written against it, and an unpinned branch HEAD
+          # broke the build when upstream later edited hw/display/pebble_display.c.
+          # Bump deliberately (and rebase the patches) to pick up upstream changes.
+          QEMU_REF=9ef633fa512105d8bcf16b93322f99660ce9d4ab
+          git init -q qemu && cd qemu
+          git remote add origin https://github.com/coredevices/qemu
+          git fetch --depth 1 origin "$QEMU_REF"
+          git checkout -q FETCH_HEAD
           echo "QEMU_SRC=$BUILD/qemu" >> "$GITHUB_ENV"
 
       - name: Apply patches
