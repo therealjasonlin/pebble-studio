@@ -156,15 +156,24 @@ describe("createBacklightController", () => {
   // disables the intrusive always-on keepalive (which navigates menus); an
   // explicit capture is a deliberate, temporary wake and should always work —
   // otherwise "backlight during capture" silently does nothing for the default
-  // user, and GIFs record dim. With method "off", capture-hold falls back to a
-  // Back-press wake (harmless on a watchface, which is what users capture).
-  it("captureHold lights the screen even when method is 'off' (Back-press fallback)", async () => {
+  // user, and GIFs record dim. Capture-hold wakes via motion (accel tap), never a
+  // Back press, so a screenshot can't navigate inside the running app (PR #16).
+  it("captureHold lights the screen even when method is 'off' (via motion, never Back)", async () => {
     const ctrl = makeController();
     ctrl.setMethod("off");
-    ctrl.setCaptureHold(true); // an explicit capture — must wake despite "off"
+    ctrl.setCaptureHold(true); // an explicit capture - must wake despite "off"
     await vi.advanceTimersByTimeAsync(0);
-    expect(readPort).toHaveBeenCalled(); // Back-press path reads the monitor port
-    expect(sendMotion).not.toHaveBeenCalled();
+    expect(sendMotion).toHaveBeenCalledTimes(1);
+    expect(readPort).not.toHaveBeenCalled(); // no Back press (would navigate the app)
+  });
+
+  it("captureHold never presses Back even when the always-on method is 'back'", async () => {
+    const ctrl = makeController();
+    ctrl.setMethod("back");
+    ctrl.setCaptureHold(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sendMotion).toHaveBeenCalledTimes(1);
+    expect(readPort).not.toHaveBeenCalled();
   });
 
   it("captureHold with method 'motion' uses motion (respects an explicit choice)", async () => {
@@ -181,14 +190,14 @@ describe("createBacklightController", () => {
     ctrl.setMethod("off");
     ctrl.setCaptureHold(true);
     await vi.advanceTimersByTimeAsync(0);
-    expect(readPort).toHaveBeenCalled();
-    readPort.mockClear();
+    expect(sendMotion).toHaveBeenCalled();
+    sendMotion.mockClear();
     ctrl.setCaptureHold(false); // capture done — interval must stop
     await vi.advanceTimersByTimeAsync(5000);
-    expect(readPort).not.toHaveBeenCalled();
+    expect(sendMotion).not.toHaveBeenCalled();
   });
 
-  it("always=true with method 'off' stays inactive (only captureHold forces it)", async () => {
+  it("=true with method 'off' stays inactive (only captureHold forces it)", async () => {
     const ctrl = makeController();
     ctrl.setMethod("off");
     ctrl.setAlways(true); // the always-on keepalive still respects "off"

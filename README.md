@@ -8,6 +8,7 @@ A modern desktop GUI for the [`qemu-pebble`](https://github.com/pebble/qemu) emu
 
 - **One-click emulator** — pick a watch model and launch; the emulator display is embedded directly in the window.
 - **Time control** — set a custom date/time, freeze the clock, or run it at an accelerated rate (2×, 4×, 10×) to test time-dependent watchfaces and apps.
+- **Simulated location and weather** — choose presets or custom coordinates, weather conditions, temperature, and day/night values for watchfaces and apps that use phone-side geolocation or weather data.
 - **Capture** — save PNG screenshots and animated GIFs of the running watch.
 - **Full input** — on-screen Back / Up / Select / Down buttons plus keyboard shortcuts, with visual feedback on every press; touch input on models that support it.
 - **Multiple watch models** — aplite, basalt, chalk, diorite, and the newer emery (Pebble Time 2), gabbro (Pebble Round 2), and flint (Pebble 2 Duo).
@@ -33,11 +34,24 @@ npm start          # launch the app
 Other useful scripts:
 
 ```bash
-npm test           # run the vitest suite
-npm run typecheck  # TypeScript type-check (main + renderer)
-npm run dev        # Vite dev server for the renderer
-npm run dist       # produce a packaged Windows build (npm run dist)
+npm test                           # run the vitest suite
+npm run typecheck                  # TypeScript type-check (main + renderer)
+npm run dev                        # Vite dev server for the renderer
+npm run dist                       # produce a packaged Windows build
+npm run patch:macos-geolocation    # reapply the macOS Pebble Tool location patch
 ```
+
+### macOS simulated geolocation
+
+When `npm install` runs on macOS, Pebble Studio automatically patches the installed Pebble Tool `pypkjs` geolocation provider so it reads the location configured under **Settings → Simulated location & weather**. When simulation is disabled, Pebble Tool retains its normal IP-based geolocation fallback.
+
+The patch is idempotent, validates the resulting Python file, and saves a backup of the original provider before replacing it. Reinstalling or upgrading Pebble Tool may restore the upstream file; rerun the patch afterward with:
+
+```bash
+npm run patch:macos-geolocation
+```
+
+If the script cannot find Pebble Tool's Python environment, install or activate Pebble Tool first and rerun the command. The script safely skips this patch on non-macOS systems.
 
 ### Runtime bundles
 

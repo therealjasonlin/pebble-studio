@@ -16,11 +16,21 @@
 
 /** The pypkjs cap-reject signature, as it appears inside the wrapped install error. */
 const BRIDGE_BUSY_RE = /unable to add pbw|emulator already running/i;
+/** Signatures that indicate the pypkjs/WebSocket bridge stopped responding. */
+const BRIDGE_DEAD_RE =
+  /Timed out waiting for install confirmation|WebSocketConnectionClosedException|Connection to remote host was lost|libpebble2\.exceptions\.TimeoutError|Couldn't launch emulator/i;
+
 
 /** True if `err` is the transient pypkjs "another client holds the slot" rejection. */
 export function isBridgeBusyError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   return BRIDGE_BUSY_RE.test(msg);
+}
+
+/** True if the emulator bridge disconnected or stopped responding. */
+export function isBridgeDeadError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return BRIDGE_DEAD_RE.test(msg);
 }
 
 export interface InstallRetryOpts {
@@ -30,6 +40,8 @@ export interface InstallRetryOpts {
   retryMs?: number;
   /** Injectable sleep (tests pass a no-op). */
   sleep?: (ms: number) => Promise<void>;
+  /** Restart the emulator bridge after a disconnect or protocol timeout. */
+  recoverBridge?: () => Promise<void>;
 }
 
 /**
@@ -44,13 +56,28 @@ export async function installWithBridgeRetry(
   const attempts = opts.attempts ?? 4;
   const retryMs = opts.retryMs ?? 400;
   const sleep = opts.sleep ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms)));
+  const recoverBridge = opts.recoverBridge;
+  let recoveredBridge = false;
+
   for (let i = 0; i < attempts; i++) {
     try {
       await install();
       return;
     } catch (e) {
+      if (
+        isBridgeDeadError(e) &&
+        recoverBridge &&
+        !recoveredBridge &&
+        i < attempts - 1
+      ) {
+        recoveredBridge = true;
+        await recoverBridge();
+        continue;
+      }
+
       if (i === attempts - 1 || !isBridgeBusyError(e)) throw e;
       await sleep(retryMs);
     }
   }
 }
+

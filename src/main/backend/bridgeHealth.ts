@@ -121,6 +121,8 @@ export function parseBridgePids(json: string, platform: string): BridgePids | nu
  *           | cut -f2 | cut -c1` yields one char (Z/S/R/…) or empty when the
  *           process is gone. If either QSTATE or PSTATE is empty or equals Z →
  *           DEAD pid; otherwise → DEAD port.
+ *           macOS has no /proc, so when the /proc read is empty we fall back to
+ *           `ps -o stat= -p <pid> | cut -c1` (same one-char state, still quote-free).
  */
 export function buildHealthCommand(pids: BridgePids): string {
   const { qemuPid, pypkjsPid, pypkjsPort } = pids;
@@ -139,7 +141,9 @@ export function buildHealthCommand(pids: BridgePids): string {
   return (
     `if (exec 3<>/dev/tcp/localhost/${pypkjsPort}) 2>/dev/null; then echo OK; exit 0; fi; ` +
     `QSTATE=$(grep -m1 ^State /proc/${qemuPid}/status 2>/dev/null | cut -f2 | cut -c1); ` +
+    `[ -z $QSTATE ] && QSTATE=$(ps -o stat= -p ${qemuPid} 2>/dev/null | cut -c1); ` +
     `PSTATE=$(grep -m1 ^State /proc/${pypkjsPid}/status 2>/dev/null | cut -f2 | cut -c1); ` +
+    `[ -z $PSTATE ] && PSTATE=$(ps -o stat= -p ${pypkjsPid} 2>/dev/null | cut -c1); ` +
     `if [ -z $QSTATE ] || [ -z $PSTATE ] || [ $QSTATE = Z ] || [ $PSTATE = Z ]; then echo DEAD pid; exit 1; fi; ` +
     `echo DEAD port`
   );

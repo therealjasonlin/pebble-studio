@@ -144,15 +144,16 @@ export function createBacklightController(
 
   /**
    * The wake method to actually use for a fire. The always-on keepalive honors
-   * the user's `method` (incl. "off" = no keepalive). But `captureHold` is a
-   * deliberate, temporary wake tied to an explicit screenshot/GIF: it must light
-   * the screen even when the always-on keepalive is "off" (the default) — else
-   * "backlight during capture" silently does nothing and GIFs record dim. When
-   * the method is "off", a capture falls back to a Back-press wake (harmless on a
-   * watchface, which is what users capture); an explicit "motion" choice is kept.
+   * the user's `method` (incl. "off" = no keepalive, "back" = Back press). But
+   * `captureHold` is a deliberate, temporary wake tied to an explicit screenshot
+   * or GIF: it must light the screen even when the always-on keepalive is "off"
+   * (the default), and it must NOT press Back - a Back press navigates inside the
+   * running app and a screenshot must never change emulator state (community PR
+   * #16). So a capture always wakes via an accel tap (motion), whatever the
+   * always-on method is.
    */
   function effectiveMethod(): BacklightMethod {
-    if (captureHold && method === "off") return "back";
+    if (captureHold) return "motion";
     return method;
   }
 
