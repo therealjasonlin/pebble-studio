@@ -1,6 +1,10 @@
 import GIF from "gif.js";
 import { FrameBudget } from "../../capture/gifRecorder.js";
-import { grabUpscaled, rgbaToBlob, applyCircularMask } from "../captureCanvas.js";
+import {
+  grabUpscaled,
+  rgbaToBlob,
+  applyCircularMask,
+} from "../captureCanvas.js";
 import type { RgbaImage } from "../../capture/upscale.js";
 import { applySunlightLut } from "../sunlightLut.js";
 
@@ -89,7 +93,12 @@ export class CaptureBar {
 
     this.durationSelect = document.createElement("select");
     this.durationSelect.className = "capture-select";
-    for (const [value, text] of [["0", "Manual"], ["5", "5s"], ["10", "10s"], ["15", "15s"]]) {
+    for (const [value, text] of [
+      ["0", "Manual"],
+      ["5", "5s"],
+      ["10", "10s"],
+      ["15", "15s"],
+    ]) {
       const opt = document.createElement("option");
       opt.value = value;
       opt.textContent = text;
@@ -119,7 +128,10 @@ export class CaptureBar {
     this.lightBtn.className = "capture-btn";
     this.lightBtn.dataset.act = "light";
     this.lightBtn.textContent = "Backlight";
-    this.lightBtn.addEventListener("click", () => void window.studio.backlightPulse());
+    this.lightBtn.addEventListener(
+      "click",
+      () => void window.studio.backlightPulse(),
+    );
 
     // Status span
     this.status = document.createElement("span");
@@ -138,8 +150,14 @@ export class CaptureBar {
     // live, and not while a modal / rebind capture is active) so a bound key can
     // capture without the Capture pane being the open inspector. Event names are
     // mirrored in EmulatorView.handleKeyDown.
-    window.addEventListener("pebble-studio:capture-screenshot", () => void this.takeScreenshot());
-    window.addEventListener("pebble-studio:capture-record", () => void this.toggleRecord());
+    window.addEventListener(
+      "pebble-studio:capture-screenshot",
+      () => void this.takeScreenshot(),
+    );
+    window.addEventListener(
+      "pebble-studio:capture-record",
+      () => void this.toggleRecord(),
+    );
   }
 
   /** Selected duration in seconds, or 0 for Manual. */
@@ -163,7 +181,10 @@ export class CaptureBar {
    * wipe themselves after a few seconds so a stale error doesn't linger; steady
    * messages ("Saved: …", "Recording…") persist and cancel any pending clear. */
   private setStatus(text: string, autoClear = false): void {
-    if (this.statusClearTimer !== null) { clearTimeout(this.statusClearTimer); this.statusClearTimer = null; }
+    if (this.statusClearTimer !== null) {
+      clearTimeout(this.statusClearTimer);
+      this.statusClearTimer = null;
+    }
     this.status.textContent = text;
     if (autoClear) {
       this.statusClearTimer = setTimeout(() => {
@@ -220,9 +241,9 @@ export class CaptureBar {
     const out = new Uint8Array(masked.data);
     for (let i = 0; i < out.length; i += 4) {
       if (out[i + 3] === 0) {
-        out[i]     = (GIF_TRANSPARENT_COLOR >> 16) & 0xff; // R
-        out[i + 1] = (GIF_TRANSPARENT_COLOR >> 8) & 0xff;  // G
-        out[i + 2] = GIF_TRANSPARENT_COLOR & 0xff;          // B
+        out[i] = (GIF_TRANSPARENT_COLOR >> 16) & 0xff; // R
+        out[i + 1] = (GIF_TRANSPARENT_COLOR >> 8) & 0xff; // G
+        out[i + 2] = GIF_TRANSPARENT_COLOR & 0xff; // B
         out[i + 3] = 255; // make opaque so gif.js sees the color
       }
     }
@@ -231,71 +252,62 @@ export class CaptureBar {
 
   private async takeScreenshot(): Promise<void> {
     const host = this.getHost();
-    if (!host) { this.setStatus("No emulator screen", true); return; }
-    // Friendly guard: without a live canvas the grab throws a raw "No canvas found
-    // inside host element". Tell the user to launch instead.
-    if (!this.hasLiveScreen()) { this.setStatus("Emulator isn't running — launch it first.", true); return; }
-    // A prior GIF's post-roll release must not fire during this shot's backlight
-    // hold; cancel it so the hold we take below owns the release.
+
+    if (!host) {
+      this.setStatus("No emulator screen", true);
+      return;
+    }
+
+    if (!this.hasLiveScreen()) {
+      this.setStatus("Emulator isn't running — launch it first.", true);
+      return;
+    }
+
     this.cancelBacklightRelease();
 
-    // Preferred path: a BACKLIGHT-FREE framebuffer grab over the watch protocol
-    // (reads the firmware framebuffer, bright regardless of the LCD backlight), so
-    // no backlight hold is needed. main writes the PNG straight to the capture
-    // file and returns its path. On ANY failure it returns null and we fall back
-    // to the exact canvas + backlight path below. (Framebuffer path is unverified-
-    // live — see winHelpers.ts — hence the robust fallback.)
-    //
-    // The grab can be blocked by the single-client pypkjs bridge (the documented
-    // SetUTC/handshake blocker), in which case it only times out and falls back.
-    // To avoid paying that timeout on EVERY shot, the first failure disables the
-    // framebuffer attempt for the rest of the session — so at most one slow shot,
-    // then straight to canvas.
-    //
-    // Restricted to 1×: main writes the framebuffer PNG at native resolution and
-    // has no upscale hook, so taking this path with a factor > 1 would silently
-    // ignore the Upscale setting. The canvas path applies the same sunlight LUT and
-    // does honour the factor, so defer to it whenever an upscale is requested.
-    if (this.sunlightCorrection() && this.factor() === 1 && !this.framebufferShotUnavailable) {
+    // Preferred path: use the emulator framebuffer when possible.
+    if (
+      this.sunlightCorrection() &&
+      this.factor() === 1 &&
+      !this.framebufferShotUnavailable
+    ) {
       try {
         const base = `pebble-shot-${this.getPlatformId()}`;
         const name = await window.studio.nextCaptureName(base, "png");
         const saved = await window.studio.screenshotFramebuffer(name);
+
         if (saved) {
           this.setStatus(`Saved: ${saved}`);
           return;
         }
-        // Returned null → framebuffer path unavailable here; stop trying it.
+
         this.framebufferShotUnavailable = true;
       } catch (err) {
-        // Never let a framebuffer error abort the shot — drop to the canvas path.
         this.framebufferShotUnavailable = true;
-        console.warn("[capture] framebuffer screenshot failed (falling back to canvas):", err);
+        console.warn(
+          "[capture] framebuffer screenshot failed; falling back to canvas:",
+          err,
+        );
       }
     }
 
     try {
-      // K: wake the backlight, give it a beat to rise, then grab — so the shot
-      // isn't dim. try/finally guarantees the hold is always released.
-      await this.setBacklightHold(true);
-      try {
-        if (this.backlightDuringCapture()) {
-          await new Promise((r) => setTimeout(r, BACKLIGHT_RISE_MS));
-        }
-        const raw = grabUpscaled(host, this.factor());
-        if (this.sunlightCorrection()) applySunlightLut(raw.data);
-        const frame = this.maybeCircularMask(raw);
-        const blob = await rgbaToBlob(frame);
-        const arrayBuffer = await blob.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuffer);
-        // G: pebble-shot-<codename>-<n>.png (n = next free integer from main).
-        const base = `pebble-shot-${this.getPlatformId()}`;
-        const name = await window.studio.nextCaptureName(base, "png");
-        const saved = await window.studio.saveCapture(name, bytes);
-        this.setStatus(`Saved: ${saved}`);
-      } finally {
-        await this.setBacklightHold(false);
+      // Capture the current canvas without injecting Back or motion input.
+      const raw = grabUpscaled(host, this.factor());
+
+      if (this.sunlightCorrection()) {
+        applySunlightLut(raw.data);
       }
+
+      const frame = this.maybeCircularMask(raw);
+      const blob = await rgbaToBlob(frame);
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+
+      const base = `pebble-shot-${this.getPlatformId()}`;
+      const name = await window.studio.nextCaptureName(base, "png");
+      const saved = await window.studio.saveCapture(name, bytes);
+
+      this.setStatus(`Saved: ${saved}`);
     } catch (err) {
       this.setStatus(`Screenshot failed: ${String(err)}`, true);
       console.error("[capture] screenshot error", err);
@@ -312,8 +324,14 @@ export class CaptureBar {
 
   private async startRecord(): Promise<void> {
     const host = this.getHost();
-    if (!host) { this.setStatus("No emulator screen", true); return; }
-    if (!this.hasLiveScreen()) { this.setStatus("Emulator isn't running — launch it first.", true); return; }
+    if (!host) {
+      this.setStatus("No emulator screen", true);
+      return;
+    }
+    if (!this.hasLiveScreen()) {
+      this.setStatus("Emulator isn't running — launch it first.", true);
+      return;
+    }
 
     // Mark recording immediately so the button reads "Stop GIF" and a second
     // click can't start a parallel recording during the pre-roll await below.
@@ -389,17 +407,20 @@ export class CaptureBar {
     const gifRef = this.gif;
 
     gifRef.on("finished", (blob: Blob) => {
-      void blob.arrayBuffer().then(async (ab) => {
-        const bytes = new Uint8Array(ab);
-        // G: pebble-rec-<codename>-<n>.gif (n = next free integer from main).
-        const base = `pebble-rec-${platformId}`;
-        const name = await window.studio.nextCaptureName(base, "gif");
-        const saved = await window.studio.saveCapture(name, bytes);
-        this.setStatus(`GIF saved: ${saved}`);
-      }).catch((err: unknown) => {
-        this.setStatus(`GIF save failed: ${String(err)}`, true);
-        console.error("[capture] gif save error", err);
-      });
+      void blob
+        .arrayBuffer()
+        .then(async (ab) => {
+          const bytes = new Uint8Array(ab);
+          // G: pebble-rec-<codename>-<n>.gif (n = next free integer from main).
+          const base = `pebble-rec-${platformId}`;
+          const name = await window.studio.nextCaptureName(base, "gif");
+          const saved = await window.studio.saveCapture(name, bytes);
+          this.setStatus(`GIF saved: ${saved}`);
+        })
+        .catch((err: unknown) => {
+          this.setStatus(`GIF save failed: ${String(err)}`, true);
+          console.error("[capture] gif save error", err);
+        });
     });
 
     // Frames are grabbed on an interval, but under load the interval slips, so
@@ -424,7 +445,11 @@ export class CaptureBar {
     }
 
     this.recTimer = setInterval(() => {
-      if (!this.recording || budget.isFull() || Date.now() - startedAt >= hardStopMs) {
+      if (
+        !this.recording ||
+        budget.isFull() ||
+        Date.now() - startedAt >= hardStopMs
+      ) {
         this.stopRecord();
         return;
       }
@@ -444,7 +469,10 @@ export class CaptureBar {
       } catch (err) {
         console.error("[capture] gif frame error", err);
         if (++consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-          this.setStatus("Recording stopped — emulator screen unavailable.", true);
+          this.setStatus(
+            "Recording stopped — emulator screen unavailable.",
+            true,
+          );
           this.stopRecord();
           return;
         }
